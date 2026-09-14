@@ -8,7 +8,7 @@ from ruamel.yaml import YAML
 from expects import *
 import pytest
 
-from pdp.task import Task
+from pdp.task import Task, latest_mtime_in_dir
 from pdp.pdp_config import TaskConfig
 
 
@@ -133,3 +133,83 @@ def test_task_traverses_subtree(task, fs):
     expect(results).to(
         equal([(1, "hello"), (2, "world"), (3, "world2"), (4, "world_child")])
     )
+
+
+def test_latest_mtime_in_dir_returns_newest_mtime(task, fs):
+    task.scaffold()
+
+    older_file = task.output_folder / "old.txt"
+    older_file.touch()
+    os.utime(older_file, (1000, 1000))
+
+    newer_file = task.output_folder / "new.txt"
+    newer_file.touch()
+    os.utime(newer_file, (2000, 2000))
+
+    expect(latest_mtime_in_dir(task.output_folder)).to(equal(2000))
+
+
+def test_latest_mtime_in_dir_checks_subdirs(task, fs):
+    task.scaffold()
+
+    nested_dir = task.output_folder / "nested"
+    nested_dir.mkdir()
+
+    top_file = task.output_folder / "top.txt"
+    top_file.touch()
+    os.utime(top_file, (1000, 1000))
+
+    nested_file = nested_dir / "deep.txt"
+    nested_file.touch()
+    os.utime(nested_file, (5000, 5000))
+
+    expect(latest_mtime_in_dir(task.output_folder)).to(equal(5000))
+
+
+def test_latest_mtime_in_dir_empty_returns_none(task, fs):
+    task.scaffold()
+
+    expect(latest_mtime_in_dir(task.output_folder)).to(be_none)
+
+
+def touch(path: Path, mtime: int):
+    path.touch()
+    os.utime(path, (mtime, mtime))
+
+
+@pytest.fixture
+def raw_and_clean(fs):
+    Path("/pdp.yml").write_text("tasks:\n  - raw\n  - clean\n")
+
+    raw = Task("raw", Path("/raw"))
+    raw.scaffold()
+
+    clean = Task("clean", Path("/clean"))
+    clean.scaffold()
+    clean.task_config.update_config_key("depends_on", ["raw"])
+
+    return raw, clean
+
+
+def test_task_is_stale_when_output_missing(raw_and_clean):
+    _, clean = raw_and_clean
+
+    expect(clean.is_stale).to(be_true)
+
+
+def test_task_is_stale_when_dependency_is_newer(raw_and_clean):
+    raw, clean = raw_and_clean
+
+    touch(clean.output_folder / "result.txt", 1000)
+    touch(raw.output_folder / "data.txt", 2000)
+
+    expect(clean.is_stale).to(be_true)
+
+
+def test_task_not_stale_when_own_output_is_newer_than_dependency(raw_and_clean):
+    raw, clean = raw_and_clean
+
+    touch(raw.output_folder / "data.txt", 1000)
+    touch(clean.output_folder / "result.txt", 2000)
+
+    expect(clean.is_stale).to(be_false)

@@ -1,4 +1,5 @@
 import subprocess
+import os
 from pathlib import Path
 
 from rich.tree import Tree
@@ -9,6 +10,15 @@ from .utils import find_project_root
 
 def is_empty(directory):
     return not directory.exists() or not any(directory.iterdir())
+
+
+def latest_mtime_in_dir(dir: Path):
+    mtimes = []
+    for root, _, files in os.walk(dir):
+        for file in files:
+            mtimes.append(os.path.getmtime(os.path.join(root, file)))
+
+    return max(mtimes, default=None)
 
 
 class Task:
@@ -110,9 +120,29 @@ class Task:
 
     def __eq__(self, other):
         return repr(self) == repr(other)
-    
+
     @property
     def task_id(self) -> str:
         root = find_project_root("pdp.yml", start=self.task_directory)
         relative = self.task_directory.relative_to(root)
         return "/".join(relative.parts)
+
+    @property
+    def is_stale(self) -> bool:
+        """Stale if (1) no output folder (2) no outputs for this task or 
+        (3) dependency output is newer than task output"""
+
+        if not os.path.isdir(self.output_folder):
+            return True
+        
+        if os.listdir(self.output_folder) == []:
+            return True
+
+        task_mtime = latest_mtime_in_dir(self.output_folder)
+
+        root = find_project_root("pdp.yml", start=self.task_directory)
+        dep_mtimes = []
+        for dep in self.depends_on:
+            dep_mtimes.append(latest_mtime_in_dir(root / dep / "output"))
+        
+        return task_mtime < max(dep_mtimes)
