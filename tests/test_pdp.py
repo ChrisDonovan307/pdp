@@ -1,13 +1,16 @@
 import os
 import subprocess
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+from expects import *
 from ruamel.yaml import YAML
 
 from pdp.pdp import PDP, PDPConfig
 from pdp.pdp_errors import InvalidConfigError
-from expects import *
-import pytest
+from pdp.task import Task
+from pdp.utils import find_project_root
 
 
 def read_config_file(filename):
@@ -68,6 +71,14 @@ def pdp(fs):
     yield pdp
 
 
+def test_find_project_root(fs):
+    pdp = PDP("test")
+    pdp.initialize()
+
+    root = find_project_root("pdp.yml", start=pdp.project_root)
+    assert root == pdp.project_root
+
+
 def test_pdp_uninitialized_when_config_file_does_not_exist(fs):
     pdp = PDP("test")
 
@@ -97,6 +108,27 @@ def test_pdp_init_is_idempotent_on_files(hello_world_tasks, pdp):
 
 def test_pdp_validate_fails_if_config_has_no_tasks(empty_pdp_yaml):
     pdp = PDP()
+    expect(pdp.validate()).to(be_false)
+
+
+def test_pdp_validate_passes_with_no_depends_on(pdp):
+    pdp.create_task("hello")
+    expect(pdp.validate()).to(be_true)
+
+
+def test_pdp_validate_raises_when_depends_on_bad_task(pdp):
+    task = pdp.create_task("hello")
+    task.task_config.update_config_key("depends_on", ["bad_task"])
+    expect(pdp.validate()).to(be_false)
+
+
+def test_pdp_validate_raises_on_cycle(pdp):
+    task1 = pdp.create_task("hello")
+    task1.task_config.update_config_key("depends_on", ["world"])
+
+    task2 = pdp.create_task("world")
+    task2.task_config.update_config_key("depends_on", ["hello"])
+
     expect(pdp.validate()).to(be_false)
 
 
@@ -273,3 +305,28 @@ def test_pdp_create_task_from_current_location_raises_if_not_in_task(fs):
 
     with pytest.raises(ValueError) as excinfo:
         pdp.create_task_from_current_location("foo")
+
+
+def test_flatten_tasks_creates_dict(hello_world_tasks, pdp):
+    flattened = pdp.flatten_tasks()
+
+    expect(isinstance(flattened, dict))
+    expect(set(flattened.keys())).to(equal({"hello", "world"}))
+    expect(flattened["hello"]).to(be_a(Task))
+
+
+def test_flatten_tasks_has_unique_task_ids(pdp):
+    pdp.create_task("clean")
+    pdp.create_task("analyze")
+
+    os.chdir("/clean")
+    pdp.create_task_from_current_location("generic_task")
+    os.chdir("/analyze")
+    pdp.create_task_from_current_location("generic_task")
+    os.chdir("/")
+
+    flattened = pdp.flatten_tasks()
+
+    expect(set(flattened.keys())).to(
+        equal({"clean", "analyze", "clean/generic_task", "analyze/generic_task"})
+    )

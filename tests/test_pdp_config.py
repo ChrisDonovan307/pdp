@@ -73,6 +73,7 @@ def test_task_config_initializes_with_entrypoint_and_subtasks(fs):
     config_dict = read_config_file("task.yml")
     expect(config_dict["entrypoint"]).to(equal(""))
     expect(config_dict["subtasks"]).to(equal([]))
+    expect(config_dict["depends_on"]).to(equal([]))
 
 
 def test_task_config_validation_requires_subtasks_and_entrypoint(fs):

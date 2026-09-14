@@ -92,10 +92,7 @@ class PDPConfig(GenericConfig):
         if "tasks" not in self.config:
             return False
 
-        if not isinstance(self.config["tasks"], list):
-            return False
-
-        return True
+        return isinstance(self.config["tasks"], list)
 
 
 class TaskConfig(GenericConfig):
@@ -108,7 +105,8 @@ class TaskConfig(GenericConfig):
             return
 
         self.yaml.dump(
-            {"name": self.name, "entrypoint": "", "subtasks": []}, self.path_to_config
+            {"name": self.name, "entrypoint": "", "subtasks": [], "depends_on": []},
+            self.path_to_config,
         )
 
         self.config = self.read_config_file()
@@ -117,13 +115,22 @@ class TaskConfig(GenericConfig):
         if "subtasks" not in self.config or "entrypoint" not in self.config:
             return False
 
+        if "depends_on" not in self.config:
+            self.config.setdefault("depends_on", [])
+
         if not isinstance(self.config["subtasks"], list):
             return False
 
-        return True
+        return isinstance(self.config["depends_on"], list)
 
     @property
     @requires_initialization
     def entrypoint(self):
         self.config = self.read_config_file()
         return self.config["entrypoint"]
+
+    @property
+    @requires_initialization
+    def depends_on(self):
+        self.config = self.read_config_file()
+        return self.config.get("depends_on", [])

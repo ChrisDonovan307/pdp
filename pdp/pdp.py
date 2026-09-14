@@ -1,29 +1,16 @@
-from pathlib import Path
+from graphlib import TopologicalSorter, CycleError
 from itertools import count
+from pathlib import Path
 
 from rich.tree import Tree
 
-from .task import Task
 from .pdp_config import PDPConfig, TaskConfig
 from .pdp_errors import InvalidConfigError
+from .task import Task
+from .utils import find_project_root
 
 
-def find_project_root(config_name) -> Path:
-    current_path = Path.cwd()
-    while current_path != current_path.parent:
-        path_to_config = current_path / config_name
-        if path_to_config.exists():
-            return current_path.resolve()
-        current_path = current_path.parent
-
-    path_to_config = current_path / config_name
-    if path_to_config.exists():
-        return current_path.resolve()
-
-    return Path.cwd().resolve()
-
-
-class PDP(object):
+class PDP:
     def __init__(
         self, project_name: str = None, config: PDPConfig | None = None
     ) -> None:
@@ -51,8 +38,24 @@ class PDP(object):
 
         if not self.config.validate():
             return False
+    
+        flattened = self.flatten_tasks()
+        
+        # Dep must exist as task
+        for task in flattened.values():
+            for dep in task.depends_on:
+                if dep not in flattened:
+                    return False
+        
+        # Check for cycles
+        graph = {task_id: task.depends_on for task_id, task in flattened.items()}
+        try:
+            TopologicalSorter(graph).prepare()
+        except CycleError:
+            return False
+        
+        return True            
 
-        return True
 
     def create_task(self, task_name: str) -> Task:
         self.config.add_task(task_name)
@@ -108,6 +111,23 @@ class PDP(object):
             task.construct_subtree(counter, tree)
 
         return tree
+
+    def flatten_tasks(self):
+        """Create flat dict of tasks
+
+        Returns:
+            dict[task_id, Task]: Tasks
+        """
+        flattened = {}
+        counter = count(1)
+
+        def collect(num, task):
+            flattened[task.task_id] = task
+
+        for task in self.tasks:
+            task.subtree_traversal(counter, collect)
+
+        return flattened
 
     @property
     def current_path(self) -> Path:

@@ -11,7 +11,8 @@ requires-python = ">=3.11"
 dependencies = [
     "ruamel-yaml (>=0.18.10,<0.19.0)",
     "typer (>=0.15.2,<0.16.0)",
-    "rich (>=14.0.0,<15.0.0)"
+    "rich (>=14.0.0,<15.0.0)",
+    "graphlib (>=0.9.5,<0.10.0)"
 ]
 
 [tool.poetry]

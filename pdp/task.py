@@ -1,9 +1,10 @@
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 from rich.tree import Tree
 
 from .pdp_config import TaskConfig
+from .utils import find_project_root
 
 
 def is_empty(directory):
@@ -100,8 +101,18 @@ class Task:
     def entrypoint(self) -> str:
         return self.task_config.entrypoint
 
+    @property
+    def depends_on(self) -> list[str]:
+        return self.task_config.depends_on
+
     def __repr__(self):
         return f"Task({self.task_name}, {self.task_directory})"
 
     def __eq__(self, other):
         return repr(self) == repr(other)
+    
+    @property
+    def task_id(self) -> str:
+        root = find_project_root("pdp.yml", start=self.task_directory)
+        relative = self.task_directory.relative_to(root)
+        return "/".join(relative.parts)
