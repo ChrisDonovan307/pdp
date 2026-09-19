@@ -110,21 +110,21 @@ class TestValidate:
         pdp = PDP()
         expect(pdp.validate()).to(be_false)
 
-    def test_pdp_validate_passes_with_no_depends_on(self, pdp):
+    def test_pdp_validate_passes_with_no_depends_on_tasks(self, pdp):
         pdp.create_task("hello")
         expect(pdp.validate()).to(be_true)
 
     def test_pdp_validate_raises_when_depends_on_bad_task(self, pdp):
         task = pdp.create_task("hello")
-        task.task_config.update_config_key("depends_on", ["bad_task"])
+        task.task_config.update_config_key("depends_on_tasks", ["bad_task"])
         expect(pdp.validate()).to(be_false)
 
     def test_pdp_validate_raises_on_cycle(self, pdp):
         task1 = pdp.create_task("hello")
-        task1.task_config.update_config_key("depends_on", ["world"])
+        task1.task_config.update_config_key("depends_on_tasks", ["world"])
 
         task2 = pdp.create_task("world")
-        task2.task_config.update_config_key("depends_on", ["hello"])
+        task2.task_config.update_config_key("depends_on_tasks", ["hello"])
 
         expect(pdp.validate()).to(be_false)
 
@@ -237,7 +237,7 @@ class TestScaffoldTask:
     def test_pdp_detects_current_task(self, hello_world_tasks, pdp):
         pdp.scaffold()
 
-        expect(pdp.current_task).to(equal("."))
+        expect(pdp.current_task).to(be_none)
 
         os.chdir("hello")
 

@@ -1,5 +1,6 @@
-from pathlib import Path
 from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import ClassVar
 
 from ruamel.yaml import YAML
 
@@ -32,6 +33,7 @@ class GenericConfig(ABC):
 
     @requires_initialization
     def update_config(self, config):
+        """Write new config, overwrites old config"""
         self.yaml.dump(config, self.path_to_config)
         self.config = config
 
@@ -46,10 +48,7 @@ class GenericConfig(ABC):
         if not self.path_to_config.exists():
             return False
 
-        if len(self.config) == 0:
-            return False
-
-        return True
+        return len(self.config) != 0
 
     @requires_initialization
     def add_task(self, task_name):
@@ -99,29 +98,33 @@ class TaskConfig(GenericConfig):
     def __init__(self, task_name, path_to_config) -> None:
         super().__init__(task_name, "subtasks", path_to_config)
 
+    CONFIG_DEFAULTS: ClassVar[dict[str, object]] = {
+        "entrypoint": "",
+        "subtasks": [],
+        "depends_on_tasks": [],
+        "depends_on_files": [],
+    }
+
     def initialize(self):
         if self.initialized:
             self.config = self.read_config_file()
             return
 
-        self.yaml.dump(
-            {"name": self.name, "entrypoint": "", "subtasks": [], "depends_on": []},
-            self.path_to_config,
-        )
+        self.yaml.dump({"name": self.name, **self.CONFIG_DEFAULTS}, self.path_to_config)
 
         self.config = self.read_config_file()
 
     def validate(self):
-        if "subtasks" not in self.config or "entrypoint" not in self.config:
+        """Validate that config contains all required keys, correct types, no other keys"""
+        allowed_keys = {"name", *self.CONFIG_DEFAULTS}
+
+        if set(self.config.keys()) != allowed_keys:
             return False
 
-        if "depends_on" not in self.config:
-            self.config.setdefault("depends_on", [])
-
-        if not isinstance(self.config["subtasks"], list):
-            return False
-
-        return isinstance(self.config["depends_on"], list)
+        return all(
+            isinstance(self.config[key], type(default))
+            for key, default in self.CONFIG_DEFAULTS.items()
+        )
 
     @property
     @requires_initialization
@@ -131,6 +134,12 @@ class TaskConfig(GenericConfig):
 
     @property
     @requires_initialization
-    def depends_on(self):
+    def depends_on_tasks(self):
         self.config = self.read_config_file()
-        return self.config.get("depends_on", [])
+        return self.config.get("depends_on_tasks", [])
+
+    @property
+    @requires_initialization
+    def depends_on_files(self):
+        self.config = self.read_config_file()
+        return self.config.get("depends_on_files", [])

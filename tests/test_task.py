@@ -186,7 +186,7 @@ def raw_and_clean(fs):
 
     clean = Task("clean", Path("/clean"))
     clean.scaffold()
-    clean.task_config.update_config_key("depends_on", ["raw"])
+    clean.task_config.update_config_key("depends_on_tasks", ["raw"])
 
     return raw, clean
 

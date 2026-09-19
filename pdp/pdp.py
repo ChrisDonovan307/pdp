@@ -1,10 +1,10 @@
-from graphlib import TopologicalSorter, CycleError
+from graphlib import CycleError, TopologicalSorter
 from itertools import count
 from pathlib import Path
 
 from rich.tree import Tree
 
-from .pdp_config import PDPConfig, TaskConfig
+from .pdp_config import PDPConfig
 from .pdp_errors import InvalidConfigError
 from .task import Task
 from .utils import find_project_root
@@ -12,7 +12,7 @@ from .utils import find_project_root
 
 class PDP:
     def __init__(
-        self, project_name: str = None, config: PDPConfig | None = None
+        self, project_name: str | None = None, config: PDPConfig | None = None
     ) -> None:
         self.project_name = project_name
 
@@ -43,12 +43,12 @@ class PDP:
         
         # Dep must exist as task
         for task in flattened.values():
-            for dep in task.depends_on:
+            for dep in task.depends_on_tasks:
                 if dep not in flattened:
                     return False
         
         # Check for cycles
-        graph = {task_id: task.depends_on for task_id, task in flattened.items()}
+        graph = {task_id: task.depends_on_tasks for task_id, task in flattened.items()}
         try:
             TopologicalSorter(graph).prepare()
         except CycleError:
@@ -70,13 +70,13 @@ class PDP:
         return task
 
     def create_task_from_current_location(self, task_name: str) -> None:
+        if self.current_path == Path("."):
+            return self.create_task(task_name)
+
         current_task = self.current_task
 
-        if isinstance(current_task, Task):
+        if current_task is not None:
             return current_task.create_subtask(task_name)
-
-        elif current_task == ".":
-            return self.create_task(task_name)
 
         raise ValueError(
             "Tried to create task from location that is neither project root nor a task."
@@ -134,17 +134,8 @@ class PDP:
         return Path.cwd().relative_to(self.project_root)
 
     @property
-    def current_task(self) -> Path:
-        current_path = str(self.current_path)
-        task = self._find_task_by_name(current_path)
-
-        if task:
-            return task
-
-        if current_path == ".":
-            return "."
-
-        return None
+    def current_task(self) -> Task | None:
+        return self._find_task_by_name(str(self.current_path))
 
     @property
     def project_root(self) -> Path:

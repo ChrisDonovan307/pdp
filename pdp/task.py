@@ -1,5 +1,7 @@
-import subprocess
+from __future__ import annotations
+
 import os
+import subprocess
 from pathlib import Path
 
 from rich.tree import Tree
@@ -19,6 +21,15 @@ def latest_mtime_in_dir(dir: Path):
             mtimes.append(os.path.getmtime(os.path.join(root, file)))
 
     return max(mtimes, default=None)
+
+
+def latest_mtime(path: Path):
+    """Newest mtime under path: the file's own mtime if it's a file,
+    or the newest mtime of any file inside it if it's a directory."""
+    if path.is_file():
+        return path.stat().st_mtime
+
+    return latest_mtime_in_dir(path)
 
 
 class Task:
@@ -60,7 +71,7 @@ class Task:
 
         return 1
 
-    def create_subtask(self, subtask_name: str) -> None:
+    def create_subtask(self, subtask_name: str) -> Task | None:
         self.task_config.add_task(subtask_name)
         subtask_directory = self.task_directory / subtask_name
 
@@ -112,8 +123,12 @@ class Task:
         return self.task_config.entrypoint
 
     @property
-    def depends_on(self) -> list[str]:
-        return self.task_config.depends_on
+    def depends_on_tasks(self) -> list[str]:
+        return self.task_config.depends_on_tasks
+
+    @property
+    def depends_on_files(self) -> list[str]:
+        return self.task_config.depends_on_files
 
     def __repr__(self):
         return f"Task({self.task_name}, {self.task_directory})"
@@ -129,20 +144,26 @@ class Task:
 
     @property
     def is_stale(self) -> bool:
-        """Stale if (1) no output folder (2) no outputs for this task or 
-        (3) dependency output is newer than task output"""
+        """Stale if (1) no output folder, (2) no outputs for task, 
+        or (3) any dependency (previous task output, file, or this task's 
+        src) is newer than this task's output."""
 
-        if not os.path.isdir(self.output_folder):
-            return True
-        
-        if os.listdir(self.output_folder) == []:
+        if is_empty(self.output_folder):
             return True
 
         task_mtime = latest_mtime_in_dir(self.output_folder)
 
         root = find_project_root("pdp.yml", start=self.task_directory)
-        dep_mtimes = []
-        for dep in self.depends_on:
-            dep_mtimes.append(latest_mtime_in_dir(root / dep / "output"))
-        
-        return task_mtime < max(dep_mtimes)
+        dependency_paths = [root / dep / "output" for dep in self.depends_on_tasks]
+        dependency_paths += [self.task_directory / f for f in self.depends_on_files]
+        dependency_paths.append(self.src_folder)
+
+        for path in dependency_paths:
+            if not path.exists():
+                return True
+
+            dep_mtime = latest_mtime(path)
+            if dep_mtime is not None and dep_mtime > task_mtime:
+                return True
+
+        return False

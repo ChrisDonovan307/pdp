@@ -1,13 +1,35 @@
+from importlib.metadata import version as pkg_version
+from pathlib import Path
+from typing import Annotated
+
 import typer
-from typing_extensions import Annotated
-from rich.console import Console
 from rich import print as rprint
+from rich.console import Console
 
-from pdp.pdp import PDP, PDPConfig
+from pdp.pdp import PDP
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 err_console = Console(stderr=True)
 console = Console()
+
+
+def _print_version():
+    rprint(pkg_version("pdp"))
+
+
+def _version_callback(value: bool):
+    if value:
+        _print_version()
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool, typer.Option("--version", callback=_version_callback, is_eager=True)
+    ] = False,
+) -> None:
+    pass
 
 
 def load_pdp():
@@ -83,7 +105,7 @@ def validate():
 
 
 @app.command()
-def run(task_name: Annotated[str, typer.Argument()] = None) -> None:
+def run(task_name: Annotated[str | None, typer.Argument()] = None) -> None:
     """
     Run a task.
     """
@@ -92,14 +114,16 @@ def run(task_name: Annotated[str, typer.Argument()] = None) -> None:
 
     if task_name:
         return_code = pdp.run_task(task_name)
+    elif pdp.current_path == Path("."):
+        return_code = pdp.run_all()
     else:
         current_task = pdp.current_task
 
-        if current_task == ".":
-            return_code = pdp.run_all()
+        if current_task is None:
+            err_console.print(f"No task at {pdp.current_path}.")
+            raise typer.Exit(1)
 
-        else:
-            return_code = pdp.run_task(current_task.task_name)
+        return_code = pdp.run_task(current_task.task_name)
 
     raise typer.Exit(return_code)
 
@@ -115,7 +139,3 @@ def tree() -> None:
     rprint(tree)
 
     raise typer.Exit(0)
-
-
-if __name__ == "__main__":
-    app()
