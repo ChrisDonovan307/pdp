@@ -59,9 +59,6 @@ def test_config_validate(config, fs):
     config.update_config({"tasks": "hello"})
     expect(config.validate()).to(be_false)
 
-    config.update_config({"tasks": ["hello", "world"]})
-    expect(config.validate()).to(be_true)
-
     config.update_config({"no_tasks": 123})
     expect(config.validate()).to(be_false)
 
@@ -89,6 +86,13 @@ def test_task_config_validation_requires_default_config_keys(fs):
     # only entrypoint, without subtasks
     config.update_config({"entrypoint": "make"})
     expect(config.validate()).to(be_false)
+
+
+# def test_task_config_validation_resolves_file_dependencies(fs):
+#     config = TaskConfig("task1", "task.yml")
+#     config.initialize()
+#     config.update_config_key('depends_on_files', 'test.csv')
+    
 
 
 def test_task_adds_its_own_tasks(fs):

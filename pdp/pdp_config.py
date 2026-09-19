@@ -38,7 +38,7 @@ class GenericConfig(ABC):
         self.config = config
 
     @requires_initialization
-    def update_config_key(self, key, value):
+    def update_config_key(self, key, value) -> None:
 
         self.config[key] = value
         self.update_config(self.config)
@@ -71,8 +71,11 @@ class GenericConfig(ABC):
         pass
 
     @abstractmethod
-    def validate(self):
-        pass
+    def validation_errors(self) -> list[str]:
+        """Reasons self.config fails validation. Empty if valid."""
+
+    def validate(self) -> bool:
+        return not self.validation_errors()
 
 
 class PDPConfig(GenericConfig):
@@ -87,11 +90,19 @@ class PDPConfig(GenericConfig):
 
         self.config = self.read_config_file()
 
-    def validate(self):
-        if "tasks" not in self.config:
-            return False
+    def validation_errors(self) -> list[str]:
+        errors = []
 
-        return isinstance(self.config["tasks"], list)
+        missing_keys = [key for key in ("tasks", "name") if key not in self.config]
+        if missing_keys:
+            errors.append(f"Missing key(s) in pdp.yml: {(',').join(missing_keys)}")
+        else:
+            if not isinstance(self.config["tasks"], list):
+                errors.append(
+                    f"tasks must be a list, got {type(self.config['tasks']).__name__}"
+                )
+
+        return errors
 
 
 class TaskConfig(GenericConfig):
@@ -105,7 +116,7 @@ class TaskConfig(GenericConfig):
         "depends_on_files": [],
     }
 
-    def initialize(self):
+    def initialize(self) -> None:
         if self.initialized:
             self.config = self.read_config_file()
             return
@@ -114,17 +125,34 @@ class TaskConfig(GenericConfig):
 
         self.config = self.read_config_file()
 
-    def validate(self):
-        """Validate that config contains all required keys, correct types, no other keys"""
+    def validation_errors(self) -> list[str]:
+        """Error messages from failed self.config validation. Empty if valid."""
+
+        # Validate task yml
         allowed_keys = {"name", *self.CONFIG_DEFAULTS}
+        errors = []
 
-        if set(self.config.keys()) != allowed_keys:
-            return False
+        unexpected = set(self.config.keys()) - allowed_keys
+        missing = allowed_keys - set(self.config.keys())
 
-        return all(
-            isinstance(self.config[key], type(default))
-            for key, default in self.CONFIG_DEFAULTS.items()
-        )
+        if unexpected:
+            errors.append(f"Unexpected key(s): {', '.join(sorted(unexpected))}")
+
+        if missing:
+            errors.append(f"Missing key(s): {', '.join(sorted(missing))}")
+
+        if not self.config.get("name"):
+            errors.append("name must be a non-empty string")
+
+        # Organize all errors for output
+        for key, default in self.CONFIG_DEFAULTS.items():
+            if key in self.config and not isinstance(self.config[key], type(default)):
+                errors.append(
+                    f"{key} must be {type(default).__name__}, "
+                    f"got {type(self.config[key]).__name__}"
+                )
+
+        return errors
 
     @property
     @requires_initialization

@@ -19,14 +19,10 @@ def read_config_file(filename):
 
 # Pre-existing task fixture
 @pytest.fixture
-def hello_world_tasks(fs):
-    with open("/pdp.yml", "w") as f:
-        f.write("tasks:\n  - hello\n  - world\n")
-
-    Path("/hello").mkdir(parents=True, exist_ok=True)
-    Path("/world").mkdir(parents=True, exist_ok=True)
-
-    yield fs
+def hello_world_tasks(pdp):
+    pdp.create_task("hello")
+    pdp.create_task("world")
+    yield pdp
 
 
 @pytest.fixture
@@ -38,7 +34,6 @@ def make_task(pdp):
         f.write("entrypoint: make\nsubtasks: []")
 
     yield task
-
 
 
 @pytest.fixture
@@ -96,7 +91,10 @@ class TestInitialize:
         expect(config_dict["tasks"]).to(equal([]))
 
     def test_pdp_init_is_idempotent_on_files(self, hello_world_tasks, pdp):
-        expect(pdp.config.config).to(equal({"tasks": ["hello", "world"]}))
+        expect(pdp.config.config).to(equal({
+            "name": "test",
+            "tasks": ["hello", "world"]
+        }))
 
     def test_pdp_initialize_raises_error_if_invalid_config(self, yaml_without_tasks):
         config = PDPConfig("test", "pdp.yml")
@@ -294,7 +292,7 @@ class TestRun:
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
             return_code = pdp.run_task("hello")
-            mock_run.assert_called_once_with("make", cwd=task.task_directory)
+            mock_run.assert_called_once_with("make", cwd=task.task_directory, shell=True)
             expect(return_code).to(equal(0))
 
     def test_pdp_raises_error_if_task_not_found(self, pdp):

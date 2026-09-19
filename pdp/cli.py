@@ -95,10 +95,12 @@ def validate():
     """
 
     pdp = load_pdp()
-    result = pdp.validate()
+    errors = pdp.validation_errors()
 
-    if not result:
+    if errors:
         err_console.print("Validation failed.")
+        for error in errors:
+            err_console.print(f"  {error}")
         raise typer.Exit(1)
 
     console.print("Valid.")

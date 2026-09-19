@@ -32,30 +32,43 @@ class PDP:
         for task in self.config.tasks:
             self.create_task(task)
 
-    def validate(self) -> bool:
-        if not self.initialized:
-            return False
+    def validation_errors(self) -> list[str]:
+        """Reasons the project fails validation; empty if it's valid.
+        Checks pdp.yml, input dir, output dir, adn task.yml for each task.
+        Checks that Depends_on_tasks references real task, and no dependency cycles."""
 
-        if not self.config.validate():
-            return False
-    
+        if not self.initialized:
+            return ["Project not initialized."]
+
+        errors = [f"pdp.yml: {error}" for error in self.config.validation_errors()]
+
+        # Validate top level tasks. Each recurses through its own subtasks
+        for task in self.tasks:
+            errors += [
+                f"{task.task_id}/task.yml: {error}"
+                for error in task.validation_errors()
+            ]
+
+        # Flatten tasks to check circular dependencies
         flattened = self.flatten_tasks()
-        
-        # Dep must exist as task
-        for task in flattened.values():
+
+        for task_id, task in flattened.items():
             for dep in task.depends_on_tasks:
                 if dep not in flattened:
-                    return False
-        
-        # Check for cycles
+                    errors.append(
+                        f"{task_id}/task.yml: depends_on_tasks references unknown task '{dep}'"
+                    )
+
         graph = {task_id: task.depends_on_tasks for task_id, task in flattened.items()}
         try:
             TopologicalSorter(graph).prepare()
         except CycleError:
-            return False
-        
-        return True            
+            errors.append("depends_on_tasks contains a cycle.")
 
+        return errors
+
+    def validate(self) -> bool:
+        return not self.validation_errors()
 
     def create_task(self, task_name: str) -> Task:
         self.config.add_task(task_name)

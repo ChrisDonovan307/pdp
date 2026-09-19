@@ -1,19 +1,24 @@
 import os
 import subprocess
+from itertools import count
 from pathlib import Path
 from unittest.mock import patch
-from itertools import count
 
-from ruamel.yaml import YAML
-from expects import *
 import pytest
+from expects import *
+from ruamel.yaml import YAML
 
-from pdp.task import Task, latest_mtime_in_dir
 from pdp.pdp_config import TaskConfig
+from pdp.task import Task, latest_mtime_in_dir
 
 
 def read_config_file(filename):
     return dict(YAML().load(Path(filename)))
+
+
+def touch(path: Path, mtime: int):
+    path.touch()
+    os.utime(path, (mtime, mtime))
 
 
 @pytest.fixture
@@ -22,6 +27,20 @@ def task(fs):
     task = Task(task_name, Path(task_name))
 
     return task
+
+
+@pytest.fixture
+def raw_and_clean(fs):
+    Path("/pdp.yml").write_text("tasks:\n  - raw\n  - clean\n")
+
+    raw = Task("raw", Path("/raw"))
+    raw.scaffold()
+
+    clean = Task("clean", Path("/clean"))
+    clean.scaffold()
+    clean.task_config.update_config_key("depends_on_tasks", ["raw"])
+
+    return raw, clean
 
 
 def test_task_runs_entrypoint_in_config(task, fs):
@@ -36,7 +55,9 @@ def test_task_runs_entrypoint_in_config(task, fs):
 
     with patch("subprocess.run", return_value=mock_result) as mock_run:
         return_code = task.run()
-        mock_run.assert_called_once_with("echo hello", cwd=task.task_directory)
+        mock_run.assert_called_once_with(
+            "echo hello", cwd=task.task_directory, shell=True
+        )
         expect(return_code).to(equal(0))
 
 
@@ -93,6 +114,57 @@ def test_task_scaffold_scaffolds_subtasks(task, fs):
     expect(Path("/hello/src").exists()).to(be_false)
 
 
+def test_task_scaffold_passes_validation(task, fs):
+    task.scaffold()
+
+    expect(task.validation_errors()).to(equal([]))
+    expect(task.validate()).to(be_true)
+
+
+def test_task_validate_raises_on_unscaffolded_task(task, fs):
+    errors = task.validation_errors()
+
+    expect(errors).to(
+        contain("Missing key(s): depends_on_files, depends_on_tasks, entrypoint, name, subtasks")
+    )
+    expect(errors).to(contain("name must be a non-empty string"))
+    expect(errors).to(contain("input/ folder is missing"))
+    expect(errors).to(contain("output/ folder is missing"))
+    expect(task.validate()).to(be_false)
+
+
+def test_task_validate_raises_on_file_dep_outside_task_directory(task, fs):
+    task.scaffold()
+    task.task_config.update_config_key("depends_on_files", ["../outside_dir.csv"])
+
+    errors = task.validation_errors()
+
+    expect(errors).to(
+        contain("depends_on_files entry '../outside_dir.csv' is outside the task directory")
+    )
+    expect(task.validate()).to(be_false)
+
+
+def test_task_validate_rejects_absolute_file_dependency(task, fs):
+    task.scaffold()
+    task.task_config.update_config_key("depends_on_files", ["/absolute/path"])
+
+    errors = task.validation_errors()
+
+    expect(errors).to(
+        contain("depends_on_files entry '/absolute/path' must be a relative path")
+    )
+    expect(task.validate()).to(be_false)
+
+
+def test_task_validate_accepts_file_dep_inside_task_directory(task, fs):
+    task.scaffold()
+    task.task_config.update_config_key("depends_on_files", ["hand/data.csv"])
+
+    expect(task.validation_errors()).to(equal([]))
+    expect(task.validate()).to(be_true)
+
+
 def test_task_equality_based_on_repr(task, fs):
     task_name = "hello"
     task2 = Task(task_name, Path(task_name))
@@ -114,7 +186,9 @@ def test_task_runs_subtasks_if_exist(task, fs):
 
     with patch("subprocess.run", return_value=mock_result) as mock_run:
         return_code = task.run()
-        mock_run.assert_called_once_with("echo world", cwd=subtask.task_directory)
+        mock_run.assert_called_once_with(
+            "echo world", cwd=subtask.task_directory, shell=True
+        )
         expect(return_code).to(equal(0))
 
 
@@ -170,25 +244,6 @@ def test_latest_mtime_in_dir_empty_returns_none(task, fs):
     task.scaffold()
 
     expect(latest_mtime_in_dir(task.output_folder)).to(be_none)
-
-
-def touch(path: Path, mtime: int):
-    path.touch()
-    os.utime(path, (mtime, mtime))
-
-
-@pytest.fixture
-def raw_and_clean(fs):
-    Path("/pdp.yml").write_text("tasks:\n  - raw\n  - clean\n")
-
-    raw = Task("raw", Path("/raw"))
-    raw.scaffold()
-
-    clean = Task("clean", Path("/clean"))
-    clean.scaffold()
-    clean.task_config.update_config_key("depends_on_tasks", ["raw"])
-
-    return raw, clean
 
 
 def test_task_is_stale_when_output_missing(raw_and_clean):
