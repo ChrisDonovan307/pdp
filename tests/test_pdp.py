@@ -1,7 +1,7 @@
 import os
 import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from expects import *
@@ -15,49 +15,6 @@ from pdp.utils import find_project_root
 
 def read_config_file(filename):
     return dict(YAML().load(Path(filename)))
-
-
-# Pre-existing task fixture
-@pytest.fixture
-def hello_world_tasks(pdp):
-    pdp.create_task("hello")
-    pdp.create_task("world")
-    yield pdp
-
-
-@pytest.fixture
-def make_task(pdp):
-    task = pdp.create_task("hello")
-    task.run = MagicMock()
-
-    with open("/hello/pdp.yml", "w") as f:
-        f.write("entrypoint: make\nsubtasks: []")
-
-    yield task
-
-
-@pytest.fixture
-def empty_pdp_yaml(fs):
-    path_to_config = Path("pdp.yml")
-    path_to_config.touch()
-
-    yield fs
-
-
-@pytest.fixture
-def yaml_without_tasks(fs):
-    with open("pdp.yml", "w") as f:
-        f.write("hello:\n  - hello\n  - world\n")
-
-    yield fs
-
-
-@pytest.fixture
-def pdp(fs):
-    pdp = PDP("test")
-    pdp.initialize()
-
-    yield pdp
 
 
 class TestUtilities:

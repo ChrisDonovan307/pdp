@@ -8,7 +8,6 @@ import pytest
 from expects import *
 from ruamel.yaml import YAML
 
-from pdp.pdp_config import TaskConfig
 from pdp.task import Task, latest_mtime_in_dir
 
 
@@ -19,28 +18,6 @@ def read_config_file(filename):
 def touch(path: Path, mtime: int):
     path.touch()
     os.utime(path, (mtime, mtime))
-
-
-@pytest.fixture
-def task(fs):
-    task_name = "hello"
-    task = Task(task_name, Path(task_name))
-
-    return task
-
-
-@pytest.fixture
-def raw_and_clean(fs):
-    Path("/pdp.yml").write_text("tasks:\n  - raw\n  - clean\n")
-
-    raw = Task("raw", Path("/raw"))
-    raw.scaffold()
-
-    clean = Task("clean", Path("/clean"))
-    clean.scaffold()
-    clean.task_config.update_config_key("depends_on_tasks", ["raw"])
-
-    return raw, clean
 
 
 def test_task_runs_entrypoint_in_config(task, fs):
@@ -125,7 +102,9 @@ def test_task_validate_raises_on_unscaffolded_task(task, fs):
     errors = task.validation_errors()
 
     expect(errors).to(
-        contain("Missing key(s): depends_on_files, depends_on_tasks, entrypoint, name, subtasks")
+        contain(
+            "Missing key(s): depends_on_files, depends_on_tasks, entrypoint, name, subtasks"
+        )
     )
     expect(errors).to(contain("name must be a non-empty string"))
     expect(errors).to(contain("input/ folder is missing"))
@@ -140,7 +119,9 @@ def test_task_validate_raises_on_file_dep_outside_task_directory(task, fs):
     errors = task.validation_errors()
 
     expect(errors).to(
-        contain("depends_on_files entry '../outside_dir.csv' is outside the task directory")
+        contain(
+            "depends_on_files entry '../outside_dir.csv' is outside the task directory"
+        )
     )
     expect(task.validate()).to(be_false)
 
@@ -266,5 +247,95 @@ def test_task_not_stale_when_own_output_is_newer_than_dependency(raw_and_clean):
 
     touch(raw.output_folder / "data.txt", 1000)
     touch(clean.output_folder / "result.txt", 2000)
+
+    expect(clean.is_stale).to(be_false)
+
+
+def test_task_is_stale_when_output_dir_missing(raw_and_clean):
+    raw, clean = raw_and_clean
+
+    raw.output_folder.rmdir()
+
+    expect(clean.is_stale).to(be_true)
+
+
+def test_task_is_stale_when_depends_on_files_is_newer(task, fs):
+    task.scaffold()
+    task.task_config.update_config_key("depends_on_files", ["hand/raw.csv"])
+
+    touch(task.output_folder / "output.csv", 1000)
+    (task.task_directory / "hand").mkdir()
+    touch(task.task_directory / "hand" / "raw.csv", 2000)
+
+    expect(task.is_stale).to(be_true)
+
+
+def test_task_not_stale_when_depends_on_files_is_older(task, fs):
+    task.scaffold()
+    task.task_config.update_config_key("depends_on_files", ["hand/raw.csv"])
+
+    (task.task_directory / "hand").mkdir()
+    touch(task.task_directory / "hand" / "raw.csv", 1000)
+    touch(task.output_folder / "output.csv", 2000)
+
+    expect(task.is_stale).to(be_false)
+
+
+def test_task_is_stale_when_depends_on_files_is_missing(task, fs):
+    task.scaffold()
+    task.task_config.update_config_key("depends_on_files", ["hand/raw.csv"])
+
+    touch(task.output_folder / "output.csv", 1000)
+
+    expect(task.is_stale).to(be_true)
+
+
+def test_task_is_stale_when_src_is_newer(task, fs):
+    task.scaffold()
+
+    touch(task.src_folder / "script.py", 2000)
+    touch(task.output_folder / "output.csv", 1000)
+    expect(task.is_stale).to(be_true)
+
+
+def test_task_not_stale_when_src_is_older(task, fs):
+    task.scaffold()
+
+    touch(task.src_folder / "script.py", 1000)
+    touch(task.output_folder / "output.csv", 2000)
+
+    expect(task.is_stale).to(be_false)
+
+
+@pytest.fixture
+def two_deps_and_clean(pdp, fs):
+    raw1 = pdp.create_task("raw1")
+    raw2 = pdp.create_task("raw2")
+    clean = pdp.create_task("clean")
+    pdp.scaffold()
+
+    clean.task_config.update_config_key("depends_on_tasks", ["raw1", "raw2"])
+
+    return raw1, raw2, clean
+
+
+def test_task_is_stale_when_only_one_of_multiple_dependencies_is_newer(
+    two_deps_and_clean,
+):
+    raw1, raw2, clean = two_deps_and_clean
+
+    touch(clean.output_folder / "output.csv", 2000)
+    touch(raw1.output_folder / "data1.csv", 1000)
+    touch(raw2.output_folder / "data2.csv", 3000)
+
+    expect(clean.is_stale).to(be_true)
+
+
+def test_task_not_stale_when_all_dependencies_are_older(two_deps_and_clean):
+    raw1, raw2, clean = two_deps_and_clean
+
+    touch(clean.output_folder / "result.txt", 2000)
+    touch(raw1.output_folder / "data1.txt", 1000)
+    touch(raw2.output_folder / "data2.txt", 1500)
 
     expect(clean.is_stale).to(be_false)

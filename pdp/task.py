@@ -36,10 +36,10 @@ class Task:
     def __init__(self, task_name: str, task_directory: str | Path):
         self.task_name = task_name
         self.task_directory = Path(task_directory).resolve()
-        self.task_config = TaskConfig(task_name, task_directory / "task.yml")
-        self.input_folder = task_directory / "input"
-        self.output_folder = task_directory / "output"
-        self.src_folder = task_directory / "src"
+        self.task_config = TaskConfig(task_name, self.task_directory / "task.yml")
+        self.input_folder = self.task_directory / "input"
+        self.output_folder = self.task_directory / "output"
+        self.src_folder = self.task_directory / "src"
         self.subtasks = []
 
     def scaffold(self):
@@ -176,9 +176,10 @@ class Task:
     @property
     def is_stale(self) -> bool:
         """Stale if (1) no output folder, (2) no outputs for task,
-        or (3) any dependency (previous task output, file, or this task's
-        src) is newer than this task's output."""
+        or (3) any dependency (depends_on_files, depends_on_tasks, or 
+        this task's src) is newer than this task's output."""
 
+        # 1 + 2
         if is_empty(self.output_folder):
             return True
 
@@ -189,6 +190,7 @@ class Task:
         dependency_paths += [self.task_directory / f for f in self.depends_on_files]
         dependency_paths.append(self.src_folder)
 
+        # 3
         for path in dependency_paths:
             if not path.exists():
                 return True
