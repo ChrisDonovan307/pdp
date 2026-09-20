@@ -82,7 +82,7 @@ class PDP:
 
         return task
 
-    def create_task_from_current_location(self, task_name: str) -> None:
+    def create_task_from_current_location(self, task_name: str) -> Task | None:
         if self.current_path == Path("."):
             return self.create_task(task_name)
 

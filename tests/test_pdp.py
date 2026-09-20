@@ -249,7 +249,9 @@ class TestRun:
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
             return_code = pdp.run_task("hello")
-            mock_run.assert_called_once_with("make", cwd=task.task_directory, shell=True)
+            mock_run.assert_called_once_with(
+                "make", cwd=task.task_directory, shell=True, check=False
+            )
             expect(return_code).to(equal(0))
 
     def test_pdp_raises_error_if_task_not_found(self, pdp):

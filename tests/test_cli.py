@@ -1,12 +1,12 @@
-from pathlib import Path
 import os
 import subprocess
-from unittest.mock import patch, call
+from pathlib import Path
+from unittest.mock import call, patch
 
-from expects import *
 import pytest
-from typer.testing import CliRunner
+from expects import *
 from ruamel.yaml import YAML
+from typer.testing import CliRunner
 
 from pdp.cli import app
 
@@ -14,7 +14,7 @@ from pdp.cli import app
 @pytest.fixture
 def runner(fs):
     runner = CliRunner(mix_stderr=False)
-    result = runner.invoke(app, ["init", "--name", "test"])
+    _ = runner.invoke(app, ["init", "--name", "test"])
 
     return runner
 
@@ -30,7 +30,7 @@ def test_init_creates_pdp_yaml(runner, fs):
 
 
 def test_create_tasks(runner, fs):
-    result = runner.invoke(app, ["create", "hello", "world"])
+    _ = runner.invoke(app, ["create", "hello", "world"])
 
     expect(Path("/hello/input").exists()).to(be_true)
     expect(Path("/hello/output").exists()).to(be_true)
@@ -42,11 +42,11 @@ def test_create_tasks(runner, fs):
 
 
 def test_create_subtasks(runner, fs):
-    result = runner.invoke(app, ["create", "hello"])
+    _ = runner.invoke(app, ["create", "hello"])
 
     os.chdir("hello")
 
-    result = runner.invoke(app, ["create", "world"])
+    _ = runner.invoke(app, ["create", "world"])
 
     expect(Path("/hello/input").exists()).to(be_false)
     expect(Path("/hello/output").exists()).to(be_false)
@@ -56,7 +56,7 @@ def test_create_subtasks(runner, fs):
     expect(Path("/hello/world/output").exists()).to(be_true)
     expect(Path("/hello/world/src").exists()).to(be_true)
 
-    yaml = YAML()
+    _ = YAML()
     task_dict = read_config_file("/hello/task.yml")
 
     expect(task_dict["name"]).to(equal("hello"))
@@ -88,7 +88,7 @@ def test_runs_current_task(runner, fs):
 
     with patch("subprocess.run", return_value=mock_result) as mock_run:
         result = runner.invoke(app, ["run"])
-        mock_run.assert_called_once_with("echo hello", cwd=Path("/hello"), shell=True)
+        mock_run.assert_called_once_with("echo hello", cwd=Path("/hello"), shell=True, check=False)
         expect(result.exit_code).to(equal(0))
 
 
@@ -114,8 +114,8 @@ def test_runs_whole_project(runner, fs):
         result = runner.invoke(app, ["run"])
         mock_run.assert_has_calls(
             [
-                call("echo hello", cwd=Path("/hello"), shell=True),
-                call("echo world", cwd=Path("/world"), shell=True),
+                call("echo hello", cwd=Path("/hello"), shell=True, check=False),
+                call("echo world", cwd=Path("/world"), shell=True, check=False),
             ]
         )
         expect(result.exit_code).to(equal(0))

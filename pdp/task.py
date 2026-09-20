@@ -62,7 +62,7 @@ class Task:
 
         if self.entrypoint:
             result = subprocess.run(
-                self.entrypoint, cwd=self.task_directory, shell=True
+                self.entrypoint, check=False, cwd=self.task_directory, shell=True
             )
             returncodes.append(result.returncode)
 
@@ -81,16 +81,20 @@ class Task:
                 errors.append("input/ folder is missing")
             if not self.output_folder.is_dir():
                 errors.append("output/ folder is missing")
-            
+
             # Validate paths for files dependencies
             for file in self.task_config.config.get("depends_on_files", []):
                 if Path(file).is_absolute():
-                    errors.append(f"depends_on_files entry '{file}' must be a relative path")
+                    errors.append(
+                        f"depends_on_files entry '{file}' must be a relative path"
+                    )
                     continue
 
                 resolved = (self.task_directory / file).resolve()
                 if not resolved.is_relative_to(self.task_directory):
-                    errors.append(f"depends_on_files entry '{file}' is outside the task directory") 
+                    errors.append(
+                        f"depends_on_files entry '{file}' is outside the task directory"
+                    )
 
         for subtask in self.subtasks:
             errors += [
@@ -176,7 +180,7 @@ class Task:
     @property
     def is_stale(self) -> bool:
         """Stale if (1) no output folder, (2) no outputs for task,
-        or (3) any dependency (depends_on_files, depends_on_tasks, or 
+        or (3) any dependency (depends_on_files, depends_on_tasks, or
         this task's src) is newer than this task's output."""
 
         # 1 + 2

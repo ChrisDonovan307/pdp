@@ -33,7 +33,7 @@ def test_task_runs_entrypoint_in_config(task, fs):
     with patch("subprocess.run", return_value=mock_result) as mock_run:
         return_code = task.run()
         mock_run.assert_called_once_with(
-            "echo hello", cwd=task.task_directory, shell=True
+            "echo hello", cwd=task.task_directory, shell=True, check=False
         )
         expect(return_code).to(equal(0))
 
@@ -41,7 +41,7 @@ def test_task_runs_entrypoint_in_config(task, fs):
 def test_task_create_subtask(task, fs):
     task.scaffold()
 
-    subtask = task.create_subtask("world")
+    _ = task.create_subtask("world")
 
     task_dict = read_config_file("/hello/task.yml")
 
@@ -69,7 +69,7 @@ def test_task_create_subtask_leaves_folders_if_nonempty(task, fs):
 
     Path("/hello/src/test.py").touch()
 
-    subtask = task.create_subtask("world")
+    _ = task.create_subtask("world")
 
     expect(Path("/hello/input").exists()).to(be_true)
     expect(Path("/hello/output").exists()).to(be_true)
@@ -168,16 +168,16 @@ def test_task_runs_subtasks_if_exist(task, fs):
     with patch("subprocess.run", return_value=mock_result) as mock_run:
         return_code = task.run()
         mock_run.assert_called_once_with(
-            "echo world", cwd=subtask.task_directory, shell=True
+            "echo world", cwd=subtask.task_directory, shell=True, check=False
         )
         expect(return_code).to(equal(0))
 
 
 def test_task_traverses_subtree(task, fs):
     task.scaffold()
-    subtask = task.create_subtask("world")
-    subtask2 = task.create_subtask("world2")
-    subtask_world_child = task.create_subtask("world_child")
+    _ = task.create_subtask("world")
+    _ = task.create_subtask("world2")
+    _ = task.create_subtask("world_child")
 
     counter = count(1)
 
