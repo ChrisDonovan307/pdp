@@ -56,22 +56,13 @@ class Task:
             self.src_folder.mkdir(parents=True, exist_ok=True)
 
     def run(self):
-        returncodes = []
-        for subtask in self.subtasks:
-            returncodes.append(subtask.run())
-
-        if self.entrypoint:
-            result = subprocess.run(
-                self.entrypoint, check=False, cwd=self.task_directory, shell=True
-            )
-            returncodes.append(result.returncode)
-
-        all_success = all(rc == 0 for rc in returncodes)
-
-        if all_success:
+        if not self.entrypoint:
             return 0
 
-        return 1
+        result = subprocess.run(
+            self.entrypoint, check=False, cwd=self.task_directory, shell=True
+        )
+        return result.returncode
 
     def validation_errors(self) -> list[str]:
         errors = self.task_config.validation_errors()

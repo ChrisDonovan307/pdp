@@ -48,10 +48,9 @@ class TestInitialize:
         expect(config_dict["tasks"]).to(equal([]))
 
     def test_pdp_init_is_idempotent_on_files(self, hello_world_tasks, pdp):
-        expect(pdp.config.config).to(equal({
-            "name": "test",
-            "tasks": ["hello", "world"]
-        }))
+        expect(pdp.config.config).to(
+            equal({"name": "test", "tasks": ["hello", "world"]})
+        )
 
     def test_pdp_initialize_raises_error_if_invalid_config(self, yaml_without_tasks):
         config = PDPConfig("test", "pdp.yml")
@@ -80,6 +79,19 @@ class TestValidate:
 
         task2 = pdp.create_task("world")
         task2.task_config.update_config_key("depends_on_tasks", ["hello"])
+
+        expect(pdp.validate()).to(be_false)
+
+    def test_pdp_validate_raises_when_depends_on_group_task(self, pdp):
+        """Group tasks have on output/, so they should not be depended upon
+        TODO: make sure this is the right approach"""
+        pdp.create_task("group")
+        os.chdir("/group")
+        pdp.create_task_from_current_location("child")
+        os.chdir("/")
+
+        task = pdp.create_task("hello")
+        task.task_config.update_config_key("depends_on_tasks", ["group"])
 
         expect(pdp.validate()).to(be_false)
 
@@ -241,7 +253,7 @@ class TestFlattenTasks:
 class TestRun:
     def test_pdp_runs_task_by_name(self, pdp):
         task = pdp.create_task("hello")
-        task.task_config.update_config({"entrypoint": "make"})
+        task.task_config.update_config_key("entrypoint", "make")
 
         mock_result = subprocess.CompletedProcess(
             args=["make"], returncode=0, stdout="hello\n"
@@ -268,3 +280,59 @@ class TestRun:
         pdp.run_all()
 
         make_task.run.assert_called_once()
+
+    def test_pdp_run_all_raises_for_cycle(self, pdp):
+        task1 = pdp.create_task("hello")
+        task1.task_config.update_config_key("depends_on_tasks", ["world"])
+
+        task2 = pdp.create_task("world")
+        task2.task_config.update_config_key("depends_on_tasks", ["hello"])
+
+        with pytest.raises(InvalidConfigError):
+            pdp.run_all()
+
+    def test_pdp_run_task_raises_for_cycle(self, pdp):
+        task1 = pdp.create_task("hello")
+        task1.task_config.update_config_key("depends_on_tasks", ["world"])
+
+        task2 = pdp.create_task("world")
+        task2.task_config.update_config_key("depends_on_tasks", ["hello"])
+
+        with pytest.raises(InvalidConfigError):
+            pdp.run_task("hello")
+
+    def test_pdp_run_task_by_nested_task_id(self, pdp):
+        pdp.create_task("group")
+        os.chdir("/group")
+        child = pdp.create_task_from_current_location("child")
+        child.task_config.update_config_key("entrypoint", "echo child")
+        os.chdir("/")
+
+        mock_result = subprocess.CompletedProcess(
+            args=["echo", "child"], returncode=0, stdout="child\n"
+        )
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            return_code = pdp.run_task("group/child")
+            mock_run.assert_called_once_with(
+                "echo child", cwd=child.task_directory, shell=True, check=False
+            )
+            expect(return_code).to(equal(0))
+
+    def test_pdp_run_group_task_runs_children_not_parent(self, pdp):
+        pdp.create_task("group")
+        os.chdir("/group")
+        child = pdp.create_task_from_current_location("child")
+        child.task_config.update_config_key("entrypoint", "echo child")
+        os.chdir("/")
+
+        mock_result = subprocess.CompletedProcess(
+            args=["echo", "child"], returncode=0, stdout="child\n"
+        )
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            return_code = pdp.run_task("group")
+            mock_run.assert_called_once_with(
+                "echo child", cwd=child.task_directory, shell=True, check=False
+            )
+            expect(return_code).to(equal(0))

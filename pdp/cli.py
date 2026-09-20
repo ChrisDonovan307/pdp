@@ -7,6 +7,7 @@ from rich import print as rprint
 from rich.console import Console
 
 from pdp.pdp import PDP
+from pdp.pdp_errors import InvalidConfigError
 
 app = typer.Typer(no_args_is_help=True)
 err_console = Console(stderr=True)
@@ -40,10 +41,6 @@ def load_pdp():
         raise typer.Exit(1)
 
     pdp.initialize()
-
-    #    if not pdp.validate():
-    #        err_console.print("Invalid pdp.yml file.")
-    #        raise typer.Exit(1)
 
     return pdp
 
@@ -107,25 +104,31 @@ def validate():
 
 
 @app.command()
-def run(task_name: Annotated[str | None, typer.Argument()] = None) -> None:
+def run(task_id: Annotated[str | None, typer.Argument()] = None) -> None:
     """
-    Run a task.
+    Run a task (by id) or all tasks (if no id given).
     """
 
     pdp = load_pdp()
 
-    if task_name:
-        return_code = pdp.run_task(task_name)
-    elif pdp.current_path == Path("."):
-        return_code = pdp.run_all()
-    else:
-        current_task = pdp.current_task
+    try:
+        if task_id:
+            return_code = pdp.run_task(task_id)
+        elif pdp.current_path == Path("."):
+            return_code = pdp.run_all()
+        else:
+            current_task = pdp.current_task
 
-        if current_task is None:
-            err_console.print(f"No task at {pdp.current_path}.")
-            raise typer.Exit(1)
+            if current_task is None:
+                err_console.print(f"No task at {pdp.current_path}.")
+                raise typer.Exit(1)
 
-        return_code = pdp.run_task(current_task.task_name)
+            return_code = pdp.run_task(current_task.task_id)
+    except InvalidConfigError as e:
+        err_console.print("Validation failed.")
+        for error in str(e).split("\n"):
+            err_console.print(f"  {error}")
+        raise typer.Exit(1)
 
     raise typer.Exit(return_code)
 

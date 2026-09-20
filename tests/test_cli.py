@@ -80,7 +80,10 @@ def test_runs_current_task(runner, fs):
     os.chdir("hello")
 
     with open("/hello/task.yml", "w") as f:
-        f.write("name: hello\nentrypoint: echo hello\nsubtasks: []")
+        f.write(
+            "name: hello\nentrypoint: echo hello\nsubtasks: []\n"
+            "depends_on_tasks: []\ndepends_on_files: []"
+        )
 
     mock_result = subprocess.CompletedProcess(
         args=["echo", "hello"], returncode=0, stdout="world\n"
@@ -97,10 +100,16 @@ def test_runs_whole_project(runner, fs):
     result = runner.invoke(app, ["create", "world"])
 
     with open("/hello/task.yml", "w") as f:
-        f.write("entrypoint: echo hello\nsubtasks: []")
+        f.write(
+            "name: hello\nentrypoint: echo hello\nsubtasks: []\n"
+            "depends_on_tasks: []\ndepends_on_files: []"
+        )
 
     with open("/world/task.yml", "w") as f:
-        f.write("entrypoint: echo world\nsubtasks: []")
+        f.write(
+            "name: world\nentrypoint: echo world\nsubtasks: []\n"
+            "depends_on_tasks: []\ndepends_on_files: []"
+        )
 
     mock_hello = subprocess.CompletedProcess(
         args=["echo", "hello"], returncode=0, stdout="world\n"

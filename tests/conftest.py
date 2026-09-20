@@ -27,8 +27,11 @@ def make_task(pdp):
     task = pdp.create_task("hello")
     task.run = MagicMock()
 
-    with open("/hello/pdp.yml", "w") as f:
-        f.write("entrypoint: make\nsubtasks: []")
+    with open("/hello/task.yml", "w") as f:
+        f.write(
+            "name: hello\nentrypoint: make\nsubtasks: []\n"
+            "depends_on_tasks: []\ndepends_on_files: []"
+        )
 
     yield task
 

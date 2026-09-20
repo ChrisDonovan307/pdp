@@ -58,6 +58,11 @@ class PDP:
                     errors.append(
                         f"{task_id}/task.yml: depends_on_tasks references unknown task '{dep}'"
                     )
+                elif not flattened[dep].entrypoint:
+                    errors.append(
+                        f"{task_id}/task.yml: depends_on_tasks references '{dep}', "
+                        "which is a group task with no output"
+                    )
 
         graph = {task_id: task.depends_on_tasks for task_id, task in flattened.items()}
         try:
@@ -99,21 +104,49 @@ class PDP:
         for task in self.tasks:
             task.scaffold()
 
-    def run_task(self, task_name: str) -> int:
-        task = self._find_task_by_name(task_name)
-        if task is None:
-            raise ValueError(f"Task {task_name} not found")
+    def _closure(self, flattened, task_id):
+        """Include task_id and anything it depends on"""
+        seen, stack = set(), [task_id]
+        while stack:
+            current = stack.pop()
+            if current not in seen:
+                seen.add(current)
+                stack.extend(flattened[current].depends_on_tasks)
+        return seen
 
-        return task.run()
+    def _run_many(self, flattened, task_ids) -> int:
+        graph = {tid: task.depends_on_tasks for tid, task in flattened.items()}
+        order = [
+            tid
+            for tid in TopologicalSorter(graph).static_order()
+            if tid in task_ids and flattened[tid].entrypoint
+        ]
+        returncodes = [flattened[tid].run() for tid in order if flattened[tid].is_stale]
+
+        return 0 if all(rc == 0 for rc in returncodes) else 1
+
+    def _validate_or_raise(self) -> None:
+        if not self.validate():
+            raise InvalidConfigError("\n".join(self.validation_errors()))
 
     def run_all(self) -> int:
-        for task in self.tasks:
-            self.run_task(task.task_name)
+        flattened = self.flatten_tasks()
+        self._validate_or_raise()
+        return self._run_many(flattened, flattened.keys())
 
-        return 0
+    def run_task(self, task_id: str) -> int:
+        flattened = self.flatten_tasks()
+        self._validate_or_raise()
+        if task_id not in flattened:
+            raise ValueError(f"Task {task_id} not found")
+        subtree = {
+            tid for tid in flattened if tid == task_id or tid.startswith(task_id + "/")
+        }
+        scope = subtree | self._closure(flattened, task_id)
+        return self._run_many(flattened, scope)
 
-    def _find_task_by_name(self, task_name: str) -> Task | None:
-        return next((t for t in self.tasks if t.task_name == task_name), None)
+    def _find_task_by_id(self, task_id: str) -> Task | None:
+        return self.flatten_tasks().get(task_id)
 
     def task_tree(self) -> Tree:
         """Create a tree structure of the tasks and subtasks.
@@ -132,7 +165,7 @@ class PDP:
             dict[task_id, Task]: Tasks
         """
         flattened = {}
-        counter = count(1)
+        counter: count[int] = count(1)
 
         def collect(num, task):
             flattened[task.task_id] = task
@@ -148,7 +181,7 @@ class PDP:
 
     @property
     def current_task(self) -> Task | None:
-        return self._find_task_by_name(str(self.current_path))
+        return self._find_task_by_id(str(self.current_path))
 
     @property
     def project_root(self) -> Path:

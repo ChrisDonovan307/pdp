@@ -153,7 +153,8 @@ def test_task_equality_based_on_repr(task, fs):
     expect(task).to(equal(task2))
 
 
-def test_task_runs_subtasks_if_exist(task, fs):
+def test_task_run_does_not_cascade_into_subtasks(task, fs):
+    """Can still run pdp.run_task() on a group. This is just for task.run_task()"""
     task.scaffold()
 
     subtask = task.create_subtask("world")
@@ -161,15 +162,9 @@ def test_task_runs_subtasks_if_exist(task, fs):
     with open(subtask.task_config.path_to_config, "w") as f:
         f.write("entrypoint: echo world\nsubtasks: []")
 
-    mock_result = subprocess.CompletedProcess(
-        args=["echo", "world"], returncode=0, stdout="world\n"
-    )
-
-    with patch("subprocess.run", return_value=mock_result) as mock_run:
+    with patch("subprocess.run") as mock_run:
         return_code = task.run()
-        mock_run.assert_called_once_with(
-            "echo world", cwd=subtask.task_directory, shell=True, check=False
-        )
+        mock_run.assert_not_called()
         expect(return_code).to(equal(0))
 
 
