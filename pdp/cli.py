@@ -78,10 +78,8 @@ def create(task_names: list[str]) -> None:
     try:
         for task_name in task_names:
             pdp.create_task_from_current_location(task_name)
-    except ValueError:
-        err_console.print(
-            "Cannot create task from current location. Not at project root or a valid task directory."
-        )
+    except ValueError as e:
+        err_console.print(f"Cannot create task: {e}")
         raise typer.Exit(1)
 
 

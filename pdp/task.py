@@ -8,26 +8,15 @@ from .pdp_config import TaskConfig
 from .utils import find_project_root
 
 
-def is_empty(directory):
-    return not directory.exists() or not any(directory.iterdir())
-
-
 def latest_mtime_in_dir(dir: Path):
     mtimes = []
     for root, _, files in os.walk(dir):
         for file in files:
-            mtimes.append(os.path.getmtime(os.path.join(root, file)))
+            path = os.path.join(root, file)
+            if os.path.exists(path):  # follows file symlinks; skips broken ones
+                mtimes.append(os.path.getmtime(path))
 
     return max(mtimes, default=None)
-
-
-def latest_mtime(path: Path):
-    """Newest mtime under path: the file's own mtime if it's a file,
-    or the newest mtime of any file inside it if it's a directory."""
-    if path.is_file():
-        return path.stat().st_mtime
-
-    return latest_mtime_in_dir(path)
 
 
 class Task:
@@ -38,6 +27,7 @@ class Task:
         self.input_folder = self.task_directory / "input"
         self.output_folder = self.task_directory / "output"
         self.src_folder = self.task_directory / "src"
+        self.hand_folder = None
 
     def scaffold(self):
         self.task_directory.mkdir(parents=True, exist_ok=True)
@@ -66,6 +56,8 @@ class Task:
             errors.append("output/ folder is missing")
         if not self.src_folder.is_dir():
             errors.append("src/ folder is missing")
+        if self.hand_folder is not None and not self.hand_folder.is_dir():
+            errors.append("hand/ folder is missing")
 
         return errors
 
@@ -94,24 +86,29 @@ class Task:
 
     @property
     def is_stale(self) -> bool:
-        """Stale if (1) no output folder, (2) no outputs for task,
-        or (3) any task dependency is_stale"""
+        """Task is stale if it has a stale task dependency, if outputs are missing,
+        or if outputs are older than the rest of the task"""
 
-        if is_empty(self.output_folder):
+        # stale dependency
+        root = find_project_root("pdp.yml", start=self.task_directory)
+        if any(Task(dep, root / dep).is_stale for dep in self.depends_on_tasks):
             return True
 
+        # missing outputs (no folder, empty, or no readable files)
         task_mtime = latest_mtime_in_dir(self.output_folder)
+        if task_mtime is None:
+            return True
 
-        root = find_project_root("pdp.yml", start=self.task_directory)
-        dependency_paths = [root / dep / "output" for dep in self.depends_on_tasks]
-        dependency_paths.append(self.src_folder)
-
-        for path in dependency_paths:
-            if not path.exists():
-                return True
-
-            dep_mtime = latest_mtime(path)
-            if dep_mtime is not None and dep_mtime > task_mtime:
+        # outputs older than input, src, hand, or a dependency's output.
+        # missing/empty folders skipped
+        for folder in (
+            self.src_folder,
+            self.input_folder,
+            self.task_directory / "hand",
+            *(root / dep / "output" for dep in self.depends_on_tasks),
+        ):
+            mtime = latest_mtime_in_dir(folder)
+            if mtime is not None and mtime > task_mtime:
                 return True
 
         return False

@@ -90,3 +90,47 @@ def raw_and_clean(fs):
     clean.scaffold()
 
     return raw, clean
+
+
+def make_real_task(root: Path, name: str, deps=()) -> Task:
+    (root / name).mkdir()
+    write_task_yml(root / name, depends_on_tasks=deps)
+    task = Task(name, root / name)
+    task.scaffold()
+
+    return task
+
+
+@pytest.fixture
+def real_task(tmp_path):
+    """Scaffolded task on the real filesystem"""
+    (tmp_path / "pdp.yml").write_text("name: test\ntasks:\n  - hello\n")
+    task = Task("hello", tmp_path / "hello")
+    task.scaffold()
+
+    return task
+
+
+@pytest.fixture
+def real_chain(tmp_path):
+    """raw -> clean -> report on real filesystem"""
+    (tmp_path / "pdp.yml").write_text(
+        "name: test\ntasks:\n  - raw\n  - clean\n  - report\n"
+    )
+    raw = make_real_task(tmp_path, "raw")
+    clean = make_real_task(tmp_path, "clean", ["raw"])
+    report = make_real_task(tmp_path, "report", ["clean"])
+
+    return raw, clean, report
+
+
+@pytest.fixture
+def two_deps_and_clean(pdp, fs):
+    raw1 = pdp.create_task("raw1")
+    raw2 = pdp.create_task("raw2")
+    clean = pdp.create_task("clean")
+    pdp.scaffold()
+
+    clean.task_config.update_config_key("depends_on_tasks", ["raw1", "raw2"])
+
+    return raw1, raw2, clean

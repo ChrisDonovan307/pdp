@@ -51,7 +51,7 @@ def test_create_from_inside_task_errors(runner, fs):
 
     expect(result.exit_code).to(equal(1))
     expect(" ".join(result.stderr.split())).to(
-        contain("Cannot create task from current location. Not at project root or a valid task directory.")
+        contain("Cannot create task: tasks can only be created at the project root")
     )
     expect(Path("/hello/world").exists()).to(be_false)
     expect(Path("/hello/input").exists()).to(be_true)

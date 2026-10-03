@@ -91,9 +91,7 @@ class PDP:
         if self.current_path == Path("."):
             return self.create_task(task_name)
 
-        raise ValueError(
-            "tasks can only be created at the project root."
-        )
+        raise ValueError("tasks can only be created at the project root")
 
     def scaffold(self) -> None:
         for task in self.tasks:
