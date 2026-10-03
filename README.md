@@ -28,12 +28,14 @@ This tool is designed both to be opinionated (see [Principles](#principles) belo
 
 ## Install
 
-Soon to be available on PyPI. Meanwhile, clone the repository, and run `poetry install`.
+Soon to be available on PyPI. Meanwhile, clone the repository, and run `uv sync`.
 
 **Requirements:**
 
 - Python 3.11+
-- [poetry](https://python-poetry.org/)
+- [uv](https://docs.astral.sh/uv/)
+
+Run the tests with `uv run pytest`, and the CLI with `uv run pdp`.
 
 ## Usage
 

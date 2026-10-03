@@ -11,22 +11,25 @@ requires-python = ">=3.11"
 dependencies = [
     "ruamel-yaml (>=0.18.10,<0.19.0)",
     "typer (>=0.15.2,<0.16.0)",
-    "rich (>=14.0.0,<15.0.0)",
-    "graphlib (>=0.9.5,<0.10.0)",
-    "pytest-cov (>=7.1.0,<8.0.0)"
+    "rich (>=14.0.0,<15.0.0)"
 ]
 
-[tool.poetry]
-
-[tool.poetry.scripts]
+[project.scripts]
 pdp = "pdp.cli:app"
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.3.5"
-pyfakefs = "^5.8.0"
-expects = "^0.9.0"
-ipython = "^9.1.0"
+[dependency-groups]
+dev = [
+    "pytest (>=8.3.5,<9.0.0)",
+    "pytest-cov (>=7.1.0,<8.0.0)",
+    "pyfakefs (>=5.8.0,<6.0.0)",
+    "expects (>=0.9.0,<0.10.0)",
+    "ipython (>=9.1.0,<10.0.0)"
+]
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
+
+# The package lives at the project root (pdp/), not under src/.
+[tool.uv.build-backend]
+module-root = ""
