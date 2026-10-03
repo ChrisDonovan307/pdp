@@ -15,7 +15,6 @@ def write_task_yml(task_dir, *, entrypoint="", depends_on_tasks=(), **overrides)
     config = {
         "name": task_dir.name,
         "entrypoint": entrypoint,
-        "subtasks": [],
         "depends_on_tasks": list(depends_on_tasks),
         **overrides,
     }

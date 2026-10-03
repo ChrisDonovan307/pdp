@@ -146,7 +146,6 @@ class TestScaffoldTask:
 
         expect(pdp.config.tasks).to(equal(["hello", "world"]))
         expect(Path("/hello/foo").exists()).to(be_false)
-        expect(read_config_file("/hello/task.yml")["subtasks"]).to(equal([]))
 
     def test_pdp_task_tree_is_flat_numbered_list(self, hello_world_tasks, pdp):
         """Will revisit hierarchical tasks later"""

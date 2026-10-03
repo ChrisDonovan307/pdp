@@ -74,6 +74,7 @@ def test_task_validate_raises_on_unscaffolded_task(task, fs):
     expect(errors).to(contain("name must be a non-empty string"))
     expect(errors).to(contain("input/ folder is missing"))
     expect(errors).to(contain("output/ folder is missing"))
+    expect(errors).to(contain("src/ folder is missing"))
     expect(task.validate()).to(be_false)
 
 

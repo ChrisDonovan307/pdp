@@ -69,7 +69,6 @@ def test_task_config_initializes_with_entrypoint_and_subtasks(fs):
 
     config_dict = read_config_file("task.yml")
     expect(config_dict["entrypoint"]).to(equal(""))
-    expect(config_dict["subtasks"]).to(equal([]))
     expect(config_dict["depends_on_tasks"]).to(equal([]))
 
 
@@ -88,16 +87,12 @@ def test_task_config_validation_requires_default_config_keys(fs):
     expect(config.validate()).to(be_false)
 
 
-def test_task_adds_its_own_tasks(fs):
+def test_task_config_no_longer_manages_subtasks(fs):
     config = TaskConfig("task1", "task.yml")
     config.initialize()
 
-    config.add_task("task2")
-    expect(config.tasks).to(equal(["task2"]))
-
-    config_dict = read_config_file("task.yml")
-    expect(config_dict["entrypoint"]).to(equal(""))
-    expect(config_dict["subtasks"]).to(equal(["task2"]))
+    expect(hasattr(config, "add_task")).to(be_false)
+    expect(hasattr(config, "tasks")).to(be_false)
 
 
 def test_task_config_repr_prints_name_and_path(fs):

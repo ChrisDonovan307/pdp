@@ -91,13 +91,8 @@ class PDP:
         if self.current_path == Path("."):
             return self.create_task(task_name)
 
-        current_task = self.current_task
-
-        if current_task is not None:
-            return current_task.create_subtask(task_name)
-
         raise ValueError(
-            "Tried to create task from location that is neither project root nor a task."
+            "tasks can only be created at the project root."
         )
 
     def scaffold(self) -> None:
@@ -139,39 +134,26 @@ class PDP:
         self._validate_or_raise()
         if task_id not in flattened:
             raise ValueError(f"Task {task_id} not found")
-        subtree = {
-            tid for tid in flattened if tid == task_id or tid.startswith(task_id + "/")
-        }
-        scope = subtree | self._closure(flattened, task_id)
+        scope = self._closure(flattened, task_id)
         return self._run_many(flattened, scope)
 
     def _find_task_by_id(self, task_id: str) -> Task | None:
         return self.flatten_tasks().get(task_id)
 
     def task_tree(self) -> Tree:
-        """Create a tree structure of the tasks and subtasks.
-        Subtasks are recursively nested within tasks."""
+        """Flat numbered list of tasks under the project name."""
         tree = Tree(f"1. {self.project_name}")
-        counter = count(2)
-        for task in self.tasks:
-            task.construct_subtree(counter, tree)
-
+        for num, task in enumerate(self.tasks, start=2):
+            tree.add(f"{num}. {task.task_id}")
         return tree
 
-    def flatten_tasks(self):
+    def flatten_tasks(self) -> dict[str, Task]:
         """Create flat dict of tasks
 
         Returns:
             dict[task_id, Task]: Tasks
         """
-        flattened = {}
-        counter: count[int] = count(1)
-
-        def collect(num, task):
-            flattened[task.task_id] = task
-
-        for task in self.tasks:
-            task.subtree_traversal(counter, collect)
+        flattened = {t.task_id: t for t in self.tasks}
 
         return flattened
 

@@ -17,10 +17,9 @@ def requires_initialization(method):
 
 
 class GenericConfig(ABC):
-    def __init__(self, name, task_key, path_to_config) -> None:
+    def __init__(self, name, path_to_config) -> None:
         self.yaml = YAML()
 
-        self.task_key = task_key
         self.path_to_config = Path(path_to_config).resolve()
         self.config = self.read_config_file()
         self.name = name or self.config.get("name", None)
@@ -50,19 +49,6 @@ class GenericConfig(ABC):
 
         return len(self.config) != 0
 
-    @requires_initialization
-    def add_task(self, task_name):
-        tasks = self.config[self.task_key]
-
-        if task_name not in tasks:
-            tasks.append(task_name)
-
-            self.update_config_key(self.task_key, tasks)
-
-    @property
-    def tasks(self):
-        return self.config.get(self.task_key, [])
-
     def __repr__(self):
         return f"{self.__class__.__name__}({self.name}, {self.path_to_config})"
 
@@ -80,7 +66,8 @@ class GenericConfig(ABC):
 
 class PDPConfig(GenericConfig):
     def __init__(self, project_name, path_to_config) -> None:
-        super().__init__(project_name, "tasks", path_to_config)
+        super().__init__(project_name, path_to_config)
+        self.task_key = "tasks"
 
     def initialize(self):
         if self.initialized:
@@ -89,6 +76,19 @@ class PDPConfig(GenericConfig):
         self.yaml.dump({"name": self.name, "tasks": []}, self.path_to_config)
 
         self.config = self.read_config_file()
+
+    @requires_initialization
+    def add_task(self, task_name):
+        tasks = self.config[self.task_key]
+
+        if task_name not in tasks:
+            tasks.append(task_name)
+
+            self.update_config_key(self.task_key, tasks)
+
+    @property
+    def tasks(self):
+        return self.config.get(self.task_key, [])
 
     def validation_errors(self) -> list[str]:
         errors = []
@@ -106,12 +106,8 @@ class PDPConfig(GenericConfig):
 
 
 class TaskConfig(GenericConfig):
-    def __init__(self, task_name, path_to_config) -> None:
-        super().__init__(task_name, "subtasks", path_to_config)
-
     CONFIG_DEFAULTS: ClassVar[dict[str, object]] = {
         "entrypoint": "",
-        "subtasks": [],
         "depends_on_tasks": [],
     }
 

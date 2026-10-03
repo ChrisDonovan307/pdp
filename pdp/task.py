@@ -4,8 +4,6 @@ import os
 import subprocess
 from pathlib import Path
 
-from rich.tree import Tree
-
 from .pdp_config import TaskConfig
 from .utils import find_project_root
 
@@ -40,20 +38,15 @@ class Task:
         self.input_folder = self.task_directory / "input"
         self.output_folder = self.task_directory / "output"
         self.src_folder = self.task_directory / "src"
-        self.subtasks = []
 
     def scaffold(self):
         self.task_directory.mkdir(parents=True, exist_ok=True)
 
         self.task_config.initialize()
 
-        for subtask in self.task_config.tasks:
-            self.create_subtask(subtask)
-
-        if len(self.subtasks) == 0:
-            self.input_folder.mkdir(parents=True, exist_ok=True)
-            self.output_folder.mkdir(parents=True, exist_ok=True)
-            self.src_folder.mkdir(parents=True, exist_ok=True)
+        self.input_folder.mkdir(parents=True, exist_ok=True)
+        self.output_folder.mkdir(parents=True, exist_ok=True)
+        self.src_folder.mkdir(parents=True, exist_ok=True)
 
     def run(self):
         if not self.entrypoint:
@@ -65,84 +58,19 @@ class Task:
         return result.returncode
 
     def validation_errors(self) -> list[str]:
-        errors = self.task_config.validation_errors()
+        errors: list[str] = self.task_config.validation_errors()
 
-        if not self.subtasks:
-            if not self.input_folder.is_dir():
-                errors.append("input/ folder is missing")
-            if not self.output_folder.is_dir():
-                errors.append("output/ folder is missing")
-
-            # Validate paths for files dependencies
-            for file in self.task_config.config.get("depends_on_files", []):
-                if Path(file).is_absolute():
-                    errors.append(
-                        f"depends_on_files entry '{file}' must be a relative path"
-                    )
-                    continue
-
-                resolved = (self.task_directory / file).resolve()
-                if not resolved.is_relative_to(self.task_directory):
-                    errors.append(
-                        f"depends_on_files entry '{file}' is outside the task directory"
-                    )
-
-        for subtask in self.subtasks:
-            errors += [
-                f"{subtask.task_name}: {error}" for error in subtask.validation_errors()
-            ]
+        if not self.input_folder.is_dir():
+            errors.append("input/ folder is missing")
+        if not self.output_folder.is_dir():
+            errors.append("output/ folder is missing")
+        if not self.src_folder.is_dir():
+            errors.append("src/ folder is missing")
 
         return errors
 
     def validate(self) -> bool:
         return not self.validation_errors()
-
-    def create_subtask(self, subtask_name: str) -> Task | None:
-        self.task_config.add_task(subtask_name)
-        subtask_directory = self.task_directory / subtask_name
-
-        subtask = Task(subtask_name, subtask_directory)
-        subtask.scaffold()
-
-        if (
-            is_empty(self.input_folder)
-            and is_empty(self.output_folder)
-            and is_empty(self.src_folder)
-        ):
-            try:
-                self.input_folder.rmdir()
-            except FileNotFoundError:
-                pass
-
-            try:
-                self.output_folder.rmdir()
-            except FileNotFoundError:
-                pass
-
-            try:
-                self.src_folder.rmdir()
-            except FileNotFoundError:
-                pass
-
-        self.subtasks.append(subtask)
-
-        return subtask
-
-    def construct_subtree(self, counter, parent_tree) -> None:
-        """Create a tree structure of the tasks and subtasks.
-        Subtasks are recursively nested within tasks."""
-        num = next(counter)
-        node = parent_tree.add(f"{num}. {self.task_name}")
-        for task in self.subtasks:
-            task.construct_subtree(counter, node)
-
-    def subtree_traversal(self, counter, callback) -> None:
-        """Iterate over the tasks and subtasks in a tree structure.
-        Subtasks are recursively nested within tasks."""
-        num = next(counter)
-        callback(num, self)
-        for task in self.subtasks:
-            task.subtree_traversal(counter, callback)
 
     @property
     def entrypoint(self) -> str:
@@ -160,9 +88,9 @@ class Task:
 
     @property
     def task_id(self) -> str:
-        root = find_project_root("pdp.yml", start=self.task_directory)
-        relative = self.task_directory.relative_to(root)
-        return "/".join(relative.parts)
+        """Without subtasks, task_id is just the directory name.
+        Revisit when subtasks come back."""
+        return self.task_directory.name
 
     @property
     def is_stale(self) -> bool:
