@@ -11,6 +11,7 @@ from pdp.pdp import PDP, PDPConfig
 from pdp.pdp_errors import InvalidConfigError
 from pdp.task import Task
 from pdp.utils import find_project_root
+from tests.conftest import write_task_yml
 
 
 def read_config_file(filename):
@@ -82,19 +83,6 @@ class TestValidate:
 
         expect(pdp.validate()).to(be_false)
 
-    def test_pdp_validate_raises_when_depends_on_group_task(self, pdp):
-        """Group tasks have on output/, so they should not be depended upon
-        TODO: make sure this is the right approach"""
-        pdp.create_task("group")
-        os.chdir("/group")
-        pdp.create_task_from_current_location("child")
-        os.chdir("/")
-
-        task = pdp.create_task("hello")
-        task.task_config.update_config_key("depends_on_tasks", ["group"])
-
-        expect(pdp.validate()).to(be_false)
-
 
 class TestScaffoldTask:
     def test_pdp_create_task(self, pdp):
@@ -146,41 +134,29 @@ class TestScaffoldTask:
         expect(hello_path_input.exists()).to(be_true)
         expect(hello_path_output.exists()).to(be_true)
 
-    def test_pdp_creates_task_from_current_location(self, hello_world_tasks, pdp):
+    def test_pdp_create_task_from_inside_task_throws_error(self, hello_world_tasks, pdp):
         pdp.scaffold()
 
         os.chdir("hello")
 
-        pdp.create_task_from_current_location("foo")
+        with pytest.raises(
+            ValueError, match="tasks can only be created at the project root"
+        ):
+            pdp.create_task_from_current_location("foo")
 
         expect(pdp.config.tasks).to(equal(["hello", "world"]))
+        expect(Path("/hello/foo").exists()).to(be_false)
+        expect(read_config_file("/hello/task.yml")["subtasks"]).to(equal([]))
 
-        yaml = YAML()
-        task_yaml = dict(yaml.load(Path("/hello/task.yml")))
-
-        expect(task_yaml["name"]).to(equal("hello"))
-        expect(task_yaml["entrypoint"]).to(equal(""))
-        expect(task_yaml["subtasks"]).to(equal(["foo"]))
-
-    def test_pdp_task_tree_generates_tree(self, pdp):
-        pdp.scaffold()
-
-        pdp.create_task("hello")
-        pdp.create_task("world")
-
-        os.chdir("/hello")
-        pdp.create_task_from_current_location("foo")
-
-        os.chdir("/world")
-        pdp.create_task_from_current_location("bar")
-
+    def test_pdp_task_tree_is_flat_numbered_list(self, hello_world_tasks, pdp):
+        """Will revisit hierarchical tasks later"""
         tree = pdp.task_tree()
 
         expect(tree.label).to(equal("1. test"))
-        expect(tree.children[0].label).to(equal("2. hello"))
-        expect(tree.children[0].children[0].label).to(equal("3. foo"))
-        expect(tree.children[1].label).to(equal("4. world"))
-        expect(tree.children[1].children[0].label).to(equal("5. bar"))
+        expect([child.label for child in tree.children]).to(
+            equal(["2. hello", "3. world"])
+        )
+        expect([child.children for child in tree.children]).to(equal([[], []]))
 
     def test_pdp_create_task_from_current_location_raises_if_not_in_task(self, fs):
         pdp = PDP()
@@ -189,7 +165,9 @@ class TestScaffoldTask:
         Path("/not_a_task").mkdir(parents=True, exist_ok=True)
         os.chdir("/not_a_task")
 
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(
+            ValueError, match="tasks can only be created at the project root"
+        ):
             pdp.create_task_from_current_location("foo")
 
     def test_pdp_detects_current_directory(self, hello_world_tasks, pdp):
@@ -232,22 +210,6 @@ class TestFlattenTasks:
         expect(isinstance(flattened, dict))
         expect(set(flattened.keys())).to(equal({"hello", "world"}))
         expect(flattened["hello"]).to(be_a(Task))
-
-    def test_flatten_tasks_has_unique_task_ids(self, pdp):
-        pdp.create_task("clean")
-        pdp.create_task("analyze")
-
-        os.chdir("/clean")
-        pdp.create_task_from_current_location("generic_task")
-        os.chdir("/analyze")
-        pdp.create_task_from_current_location("generic_task")
-        os.chdir("/")
-
-        flattened = pdp.flatten_tasks()
-
-        expect(set(flattened.keys())).to(
-            equal({"clean", "analyze", "clean/generic_task", "analyze/generic_task"})
-        )
 
 
 class TestRun:
@@ -301,38 +263,22 @@ class TestRun:
         with pytest.raises(InvalidConfigError):
             pdp.run_task("hello")
 
-    def test_pdp_run_task_by_nested_task_id(self, pdp):
-        pdp.create_task("group")
-        os.chdir("/group")
-        child = pdp.create_task_from_current_location("child")
-        child.task_config.update_config_key("entrypoint", "echo child")
-        os.chdir("/")
+    def test_pdp_run_task_runs_dependency_closure_and_nothing_else(self, pdp):
+        """raw <- clean <- report, plus unrelated. Running clean runs raw then
+        clean: not its dependent (report), not the unrelated task."""
+        for name in ("raw", "clean", "report", "unrelated"):
+            pdp.create_task(name)
+        write_task_yml("/raw", entrypoint="echo raw")
+        write_task_yml("/clean", entrypoint="echo clean", depends_on_tasks=["raw"])
+        write_task_yml("/report", entrypoint="echo report", depends_on_tasks=["clean"])
+        write_task_yml("/unrelated", entrypoint="echo unrelated")
 
-        mock_result = subprocess.CompletedProcess(
-            args=["echo", "child"], returncode=0, stdout="child\n"
+        ok = subprocess.CompletedProcess(args=[], returncode=0)
+
+        with patch("subprocess.run", return_value=ok) as mock_run:
+            return_code = pdp.run_task("clean")
+
+        expect([c.args[0] for c in mock_run.call_args_list]).to(
+            equal(["echo raw", "echo clean"])
         )
-
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            return_code = pdp.run_task("group/child")
-            mock_run.assert_called_once_with(
-                "echo child", cwd=child.task_directory, shell=True, check=False
-            )
-            expect(return_code).to(equal(0))
-
-    def test_pdp_run_group_task_runs_children_not_parent(self, pdp):
-        pdp.create_task("group")
-        os.chdir("/group")
-        child = pdp.create_task_from_current_location("child")
-        child.task_config.update_config_key("entrypoint", "echo child")
-        os.chdir("/")
-
-        mock_result = subprocess.CompletedProcess(
-            args=["echo", "child"], returncode=0, stdout="child\n"
-        )
-
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            return_code = pdp.run_task("group")
-            mock_run.assert_called_once_with(
-                "echo child", cwd=child.task_directory, shell=True, check=False
-            )
-            expect(return_code).to(equal(0))
+        expect(return_code).to(equal(0))

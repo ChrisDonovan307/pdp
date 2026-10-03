@@ -152,10 +152,6 @@ class Task:
     def depends_on_tasks(self) -> list[str]:
         return self.task_config.depends_on_tasks
 
-    @property
-    def depends_on_files(self) -> list[str]:
-        return self.task_config.depends_on_files
-
     def __repr__(self):
         return f"Task({self.task_name}, {self.task_directory})"
 
@@ -171,10 +167,8 @@ class Task:
     @property
     def is_stale(self) -> bool:
         """Stale if (1) no output folder, (2) no outputs for task,
-        or (3) any dependency (depends_on_files, depends_on_tasks, or
-        this task's src) is newer than this task's output."""
+        or (3) any task dependency is_stale"""
 
-        # 1 + 2
         if is_empty(self.output_folder):
             return True
 
@@ -182,10 +176,8 @@ class Task:
 
         root = find_project_root("pdp.yml", start=self.task_directory)
         dependency_paths = [root / dep / "output" for dep in self.depends_on_tasks]
-        dependency_paths += [self.task_directory / f for f in self.depends_on_files]
         dependency_paths.append(self.src_folder)
 
-        # 3
         for path in dependency_paths:
             if not path.exists():
                 return True

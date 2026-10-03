@@ -1,6 +1,5 @@
 import os
 import subprocess
-from itertools import count
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,6 +8,7 @@ from expects import *
 from ruamel.yaml import YAML
 
 from pdp.task import Task, latest_mtime_in_dir
+from tests.conftest import write_task_yml
 
 
 def read_config_file(filename):
@@ -38,57 +38,26 @@ def test_task_runs_entrypoint_in_config(task, fs):
         expect(return_code).to(equal(0))
 
 
-def test_task_create_subtask(task, fs):
+def test_task_scaffold_creates_folders(task, fs):
     task.scaffold()
 
-    _ = task.create_subtask("world")
-
-    task_dict = read_config_file("/hello/task.yml")
-
-    expect(task_dict["name"]).to(equal("hello"))
-    expect(task_dict["entrypoint"]).to(equal(""))
-    expect(task_dict["subtasks"]).to(equal(["world"]))
-
-    expect(Path("/hello/world/input").exists()).to(be_true)
-    expect(Path("/hello/world/output").exists()).to(be_true)
-    expect(Path("/hello/world/src").exists()).to(be_true)
-
-    subtask_dict = read_config_file("/hello/world/task.yml")
-    expect(subtask_dict["name"]).to(equal("world"))
-    expect(subtask_dict["entrypoint"]).to(equal(""))
-    expect(subtask_dict["subtasks"]).to(equal([]))
-
-    # Removes the hello input, output, and src
-    expect(Path("/hello/input").exists()).to(be_false)
-    expect(Path("/hello/output").exists()).to(be_false)
-    expect(Path("/hello/src").exists()).to(be_false)
+    expect(task.input_folder.is_dir()).to(be_true)
+    expect(task.output_folder.is_dir()).to(be_true)
+    expect(task.src_folder.is_dir()).to(be_true)
 
 
-def test_task_create_subtask_leaves_folders_if_nonempty(task, fs):
-    task.scaffold()
-
-    Path("/hello/src/test.py").touch()
-
-    _ = task.create_subtask("world")
-
-    expect(Path("/hello/input").exists()).to(be_true)
-    expect(Path("/hello/output").exists()).to(be_true)
-    expect(Path("/hello/src").exists()).to(be_true)
-
-
-def test_task_scaffold_scaffolds_subtasks(task, fs):
-    task.scaffold()
-    with open(task.task_config.path_to_config, "w") as f:
-        f.write("entrypoint: \nsubtasks: ['world']")
+def test_task_scaffold_ignores_subtasks_and_always_creates_folders(fs):
+    """Will revisit subtasks later"""
+    Path("/hello").mkdir()
+    write_task_yml("/hello", subtasks=["world"])
+    task = Task("hello", Path("/hello"))
 
     task.scaffold()
-    expect(Path("/hello/world/input").exists()).to(be_true)
-    expect(Path("/hello/world/output").exists()).to(be_true)
-    expect(Path("/hello/world/src").exists()).to(be_true)
 
-    expect(Path("/hello/input").exists()).to(be_false)
-    expect(Path("/hello/output").exists()).to(be_false)
-    expect(Path("/hello/src").exists()).to(be_false)
+    expect(task.input_folder.is_dir()).to(be_true)
+    expect(task.output_folder.is_dir()).to(be_true)
+    expect(task.src_folder.is_dir()).to(be_true)
+    expect(Path("/hello/world").exists()).to(be_false)
 
 
 def test_task_scaffold_passes_validation(task, fs):
@@ -101,49 +70,19 @@ def test_task_scaffold_passes_validation(task, fs):
 def test_task_validate_raises_on_unscaffolded_task(task, fs):
     errors = task.validation_errors()
 
-    expect(errors).to(
-        contain(
-            "Missing key(s): depends_on_files, depends_on_tasks, entrypoint, name, subtasks"
-        )
-    )
+    expect(errors).to(contain("Missing key(s): depends_on_tasks, entrypoint, name"))
     expect(errors).to(contain("name must be a non-empty string"))
     expect(errors).to(contain("input/ folder is missing"))
     expect(errors).to(contain("output/ folder is missing"))
     expect(task.validate()).to(be_false)
 
 
-def test_task_validate_raises_on_file_dep_outside_task_directory(task, fs):
-    task.scaffold()
-    task.task_config.update_config_key("depends_on_files", ["../outside_dir.csv"])
+def test_task_id_is_directory_name(fs):
+    Path("/pdp.yml").write_text("name: test\ntasks: []\n")
 
-    errors = task.validation_errors()
+    task = Task("hello", Path("/somewhere/deeper/hello"))
 
-    expect(errors).to(
-        contain(
-            "depends_on_files entry '../outside_dir.csv' is outside the task directory"
-        )
-    )
-    expect(task.validate()).to(be_false)
-
-
-def test_task_validate_rejects_absolute_file_dependency(task, fs):
-    task.scaffold()
-    task.task_config.update_config_key("depends_on_files", ["/absolute/path"])
-
-    errors = task.validation_errors()
-
-    expect(errors).to(
-        contain("depends_on_files entry '/absolute/path' must be a relative path")
-    )
-    expect(task.validate()).to(be_false)
-
-
-def test_task_validate_accepts_file_dep_inside_task_directory(task, fs):
-    task.scaffold()
-    task.task_config.update_config_key("depends_on_files", ["hand/data.csv"])
-
-    expect(task.validation_errors()).to(equal([]))
-    expect(task.validate()).to(be_true)
+    expect(task.task_id).to(equal("hello"))
 
 
 def test_task_equality_based_on_repr(task, fs):
@@ -151,38 +90,6 @@ def test_task_equality_based_on_repr(task, fs):
     task2 = Task(task_name, Path(task_name))
 
     expect(task).to(equal(task2))
-
-
-def test_task_run_does_not_cascade_into_subtasks(task, fs):
-    """Can still run pdp.run_task() on a group. This is just for task.run_task()"""
-    task.scaffold()
-
-    subtask = task.create_subtask("world")
-
-    with open(subtask.task_config.path_to_config, "w") as f:
-        f.write("entrypoint: echo world\nsubtasks: []")
-
-    with patch("subprocess.run") as mock_run:
-        return_code = task.run()
-        mock_run.assert_not_called()
-        expect(return_code).to(equal(0))
-
-
-def test_task_traverses_subtree(task, fs):
-    task.scaffold()
-    _ = task.create_subtask("world")
-    _ = task.create_subtask("world2")
-    _ = task.create_subtask("world_child")
-
-    counter = count(1)
-
-    results = []
-    callback = lambda num, task: results.append((num, task.task_name))
-    task.subtree_traversal(counter, callback)
-
-    expect(results).to(
-        equal([(1, "hello"), (2, "world"), (3, "world2"), (4, "world_child")])
-    )
 
 
 def test_latest_mtime_in_dir_returns_newest_mtime(task, fs):
@@ -252,37 +159,6 @@ def test_task_is_stale_when_output_dir_missing(raw_and_clean):
     raw.output_folder.rmdir()
 
     expect(clean.is_stale).to(be_true)
-
-
-def test_task_is_stale_when_depends_on_files_is_newer(task, fs):
-    task.scaffold()
-    task.task_config.update_config_key("depends_on_files", ["hand/raw.csv"])
-
-    touch(task.output_folder / "output.csv", 1000)
-    (task.task_directory / "hand").mkdir()
-    touch(task.task_directory / "hand" / "raw.csv", 2000)
-
-    expect(task.is_stale).to(be_true)
-
-
-def test_task_not_stale_when_depends_on_files_is_older(task, fs):
-    task.scaffold()
-    task.task_config.update_config_key("depends_on_files", ["hand/raw.csv"])
-
-    (task.task_directory / "hand").mkdir()
-    touch(task.task_directory / "hand" / "raw.csv", 1000)
-    touch(task.output_folder / "output.csv", 2000)
-
-    expect(task.is_stale).to(be_false)
-
-
-def test_task_is_stale_when_depends_on_files_is_missing(task, fs):
-    task.scaffold()
-    task.task_config.update_config_key("depends_on_files", ["hand/raw.csv"])
-
-    touch(task.output_folder / "output.csv", 1000)
-
-    expect(task.is_stale).to(be_true)
 
 
 def test_task_is_stale_when_src_is_newer(task, fs):

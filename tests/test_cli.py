@@ -9,6 +9,7 @@ from ruamel.yaml import YAML
 from typer.testing import CliRunner
 
 from pdp.cli import app
+from tests.conftest import write_task_yml
 
 
 @pytest.fixture
@@ -41,27 +42,20 @@ def test_create_tasks(runner, fs):
     expect(Path("/world/src").exists()).to(be_true)
 
 
-def test_create_subtasks(runner, fs):
+def test_create_from_inside_task_errors(runner, fs):
     _ = runner.invoke(app, ["create", "hello"])
 
     os.chdir("hello")
 
-    _ = runner.invoke(app, ["create", "world"])
+    result = runner.invoke(app, ["create", "world"])
 
-    expect(Path("/hello/input").exists()).to(be_false)
-    expect(Path("/hello/output").exists()).to(be_false)
-    expect(Path("/hello/src").exists()).to(be_false)
-
-    expect(Path("/hello/world/input").exists()).to(be_true)
-    expect(Path("/hello/world/output").exists()).to(be_true)
-    expect(Path("/hello/world/src").exists()).to(be_true)
-
-    _ = YAML()
-    task_dict = read_config_file("/hello/task.yml")
-
-    expect(task_dict["name"]).to(equal("hello"))
-    expect(task_dict["entrypoint"]).to(equal(""))
-    expect(task_dict["subtasks"]).to(equal(["world"]))
+    expect(result.exit_code).to(equal(1))
+    expect(" ".join(result.stderr.split())).to(
+        contain("tasks can only be created at the project root")
+    )
+    expect(Path("/hello/world").exists()).to(be_false)
+    expect(Path("/hello/input").exists()).to(be_true)
+    expect(read_config_file("/hello/task.yml")["subtasks"]).to(equal([]))
 
 
 def test_create_errs_if_creating_task_from_invalid_location(runner, fs):
@@ -79,11 +73,7 @@ def test_runs_current_task(runner, fs):
 
     os.chdir("hello")
 
-    with open("/hello/task.yml", "w") as f:
-        f.write(
-            "name: hello\nentrypoint: echo hello\nsubtasks: []\n"
-            "depends_on_tasks: []\ndepends_on_files: []"
-        )
+    write_task_yml("/hello", entrypoint="echo hello")
 
     mock_result = subprocess.CompletedProcess(
         args=["echo", "hello"], returncode=0, stdout="world\n"
@@ -99,17 +89,9 @@ def test_runs_whole_project(runner, fs):
     result = runner.invoke(app, ["create", "hello"])
     result = runner.invoke(app, ["create", "world"])
 
-    with open("/hello/task.yml", "w") as f:
-        f.write(
-            "name: hello\nentrypoint: echo hello\nsubtasks: []\n"
-            "depends_on_tasks: []\ndepends_on_files: []"
-        )
+    write_task_yml("/hello", entrypoint="echo hello")
 
-    with open("/world/task.yml", "w") as f:
-        f.write(
-            "name: world\nentrypoint: echo world\nsubtasks: []\n"
-            "depends_on_tasks: []\ndepends_on_files: []"
-        )
+    write_task_yml("/world", entrypoint="echo world")
 
     mock_hello = subprocess.CompletedProcess(
         args=["echo", "hello"], returncode=0, stdout="world\n"
@@ -130,12 +112,8 @@ def test_runs_whole_project(runner, fs):
         expect(result.exit_code).to(equal(0))
 
 
-def test_tree_enumerates_tasks_and_subtasks(runner, fs):
-    result = runner.invoke(app, ["create", "hello"])
-    result = runner.invoke(app, ["create", "world"])
-
-    os.chdir("/world")
-    result = runner.invoke(app, ["create", "subtask1"])
+def test_tree_enumerates_tasks_as_flat_list(runner, fs):
+    _ = runner.invoke(app, ["create", "hello", "world"])
 
     result = runner.invoke(app, ["tree"])
 
@@ -144,7 +122,6 @@ def test_tree_enumerates_tasks_and_subtasks(runner, fs):
             """1. test
 ├── 2. hello
 └── 3. world
-    └── 4. subtask1
 """
         )
     )

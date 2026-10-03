@@ -113,7 +113,6 @@ class TaskConfig(GenericConfig):
         "entrypoint": "",
         "subtasks": [],
         "depends_on_tasks": [],
-        "depends_on_files": [],
     }
 
     def initialize(self) -> None:
@@ -165,9 +164,3 @@ class TaskConfig(GenericConfig):
     def depends_on_tasks(self):
         self.config = self.read_config_file()
         return self.config.get("depends_on_tasks", [])
-
-    @property
-    @requires_initialization
-    def depends_on_files(self):
-        self.config = self.read_config_file()
-        return self.config.get("depends_on_files", [])

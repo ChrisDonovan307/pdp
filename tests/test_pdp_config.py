@@ -88,13 +88,6 @@ def test_task_config_validation_requires_default_config_keys(fs):
     expect(config.validate()).to(be_false)
 
 
-# def test_task_config_validation_resolves_file_dependencies(fs):
-#     config = TaskConfig("task1", "task.yml")
-#     config.initialize()
-#     config.update_config_key('depends_on_files', 'test.csv')
-    
-
-
 def test_task_adds_its_own_tasks(fs):
     config = TaskConfig("task1", "task.yml")
     config.initialize()
