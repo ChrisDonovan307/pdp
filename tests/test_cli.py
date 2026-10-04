@@ -9,7 +9,7 @@ from ruamel.yaml import YAML
 from typer.testing import CliRunner
 
 from pdp.cli import app
-from tests.conftest import write_task_yml
+from tests.helpers import backdate_task_yml, write_task_yml
 
 
 @pytest.fixture
@@ -80,7 +80,9 @@ def test_runs_current_task(runner, fs):
 
     with patch("subprocess.run", return_value=mock_result) as mock_run:
         result = runner.invoke(app, ["run"])
-        mock_run.assert_called_once_with("echo hello", cwd=Path("/hello"), shell=True, check=False, env=ANY)
+        mock_run.assert_called_once_with(
+            "echo hello", cwd=Path("/hello"), shell=True, check=False, env=ANY
+        )
         expect(result.exit_code).to(equal(0))
 
 
@@ -104,8 +106,12 @@ def test_runs_whole_project(runner, fs):
         result = runner.invoke(app, ["run"])
         mock_run.assert_has_calls(
             [
-                call("echo hello", cwd=Path("/hello"), shell=True, check=False, env=ANY),
-                call("echo world", cwd=Path("/world"), shell=True, check=False, env=ANY),
+                call(
+                    "echo hello", cwd=Path("/hello"), shell=True, check=False, env=ANY
+                ),
+                call(
+                    "echo world", cwd=Path("/world"), shell=True, check=False, env=ANY
+                ),
             ]
         )
         expect(result.exit_code).to(equal(0))
@@ -136,7 +142,7 @@ def test_read_only_commands_create_no_symlinks(command, import_and_clean_project
 
 
 def test_create_rejects_invalid_task_name(runner, fs):
-    bad_name= "bad.task..name"
+    bad_name = "bad.task..name"
     result = runner.invoke(app, ["create", bad_name])
 
     expect(result.exit_code).to(equal(1))
@@ -153,3 +159,67 @@ def test_run_reports_failed_and_skipped_tasks(import_and_clean_project):
     expect(result.exit_code).to(equal(1))
     expect(result.stderr).to(contain("Failed: import"))
     expect(result.stderr).to(contain("Skipped (upstream failed): clean"))
+
+
+def test_force_flag_runs_a_fresh_task(real_pdp):
+    task = real_pdp.create_task("task1")
+    write_task_yml("task1", entrypoint="touch output/ran")
+    backdate_task_yml(task)
+    (task.output_folder / "result.csv").write_text("done")
+
+    result = CliRunner(mix_stderr=False).invoke(app, ["run", "--force"])
+
+    expect(result.exit_code).to(equal(0))
+    expect((task.output_folder / "ran").exists()).to(be_true)
+
+
+def test_run_prints_current_and_entrypointless_tasks(real_pdp):
+    fresh = real_pdp.create_task("fresh")
+    write_task_yml("fresh", entrypoint="touch output/ran")
+    backdate_task_yml(fresh)
+    (fresh.output_folder / "result.csv").write_text("done")
+    real_pdp.create_task("hand")
+
+    result = CliRunner(mix_stderr=False).invoke(app, ["run"])
+
+    expect(result.stdout).to(contain("Current: fresh"))
+    expect(result.stdout).to(contain("No entrypoint, not run: hand"))
+
+
+def test_running_unknown_task_throws_error(runner, fs):
+    result = runner.invoke(app, ["run", "badtask"])
+
+    expect(result.exit_code).to(equal(1))
+    expect(result.stderr).to(contain("Task badtask not found"))
+    expect(result.exception).to(be_a(SystemExit))
+
+
+def test_run_with_invalid_pdp_yml_throws_error(runner, fs):
+    Path("/pdp.yml").write_text("name: test\ntasks:\n  - bad.name\n")
+
+    result = runner.invoke(app, ["run"])
+
+    expect(result.exit_code).to(equal(1))
+    expect(result.stderr).to(contain("Validation failed."))
+    expect(result.stderr).to(contain("invalid task name 'bad.name'"))
+    expect(result.exception).to(be_a(SystemExit))
+
+
+def test_run_warns_when_success_wrote_no_output(real_pdp):
+    """Cover cases where entrypoint only prints, or writes outside of project"""
+    real_pdp.create_task("task1")
+    write_task_yml("task1", entrypoint="true")
+
+    result = CliRunner(mix_stderr=False).invoke(app, ["run"])
+
+    expect(result.exit_code).to(equal(0))
+    expect(result.stderr).to(contain("Ran but wrote nothing to output/: task1"))
+
+
+def test_run_prints_tasks_that_ran(import_and_clean_project):
+    write_task_yml("import", entrypoint="touch output/data.csv")
+    write_task_yml("clean", entrypoint="touch output/ran", depends_on=["import"])
+
+    result = CliRunner(mix_stderr=False).invoke(app, ["run"])
+
+    expect(result.stdout).to(contain("Ran: import, clean"))

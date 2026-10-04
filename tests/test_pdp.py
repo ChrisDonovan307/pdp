@@ -11,7 +11,7 @@ from pdp.pdp import PDP, PDPConfig
 from pdp.pdp_errors import InvalidConfigError
 from pdp.task import Task
 from pdp.utils import find_project_root
-from tests.conftest import write_task_yml
+from tests.helpers import backdate_task_yml, write_task_yml
 
 
 def read_config_file(filename):
@@ -395,9 +395,7 @@ class TestSymlinks:
 
 
 class TestDependencyEnvPaths:
-    def test_run_sets_dep_env_var_to_output_path(
-        self, import_and_clean_project
-    ):
+    def test_run_sets_dep_env_var_to_output_path(self, import_and_clean_project):
         """Entrypoint should read input variable from env"""
 
         write_task_yml("import", entrypoint="touch output/data.csv")
@@ -494,7 +492,15 @@ class TestTaskNames:
 
     @pytest.mark.parametrize(
         "task_name",
-        ["import", "clean_data", "clean-data", "Clean", "CleanData2", "2026", "task-clean-v2_3"],
+        [
+            "import",
+            "clean_data",
+            "clean-data",
+            "Clean",
+            "CleanData2",
+            "2026",
+            "task-clean-v2_3",
+        ],
     )
     def test_pdp_create_task_accepts_valid_task_name(self, pdp, task_name):
         pdp.create_task(task_name)
@@ -558,3 +564,83 @@ class TestRunFailureHandling:
         expect(Path("clean/output/ran").exists()).to(be_true)
         expect(result.failed).to(equal([]))
         expect(result.skipped).to(equal([]))
+
+
+class TestFailureCleanup:
+    def test_failed_run_removes_only_its_files(self, real_pdp):
+        task = real_pdp.create_task("task1")
+        for name in ("old.csv", "changed.csv"):
+            (task.output_folder / name).write_text("good")
+            os.utime(task.output_folder / name, (1000, 1000))
+        (task.src_folder / "script.py").write_text("")
+        write_task_yml(
+            "task1",
+            entrypoint="echo partial > output/new.csv;"
+            "echo partial > output/changed.csv; exit 1",
+        )
+
+        real_pdp.run_task("task1")
+
+        expect(sorted(os.listdir(task.output_folder))).to(equal(["old.csv"]))
+        expect(task.is_stale).to(be_true)
+
+
+class TestForceRun:
+    def _fresh_task(self, real_pdp):
+        task = real_pdp.create_task("task1")
+        write_task_yml("task1", entrypoint="touch output/ran")
+        backdate_task_yml(task)
+        (task.output_folder / "result.csv").write_text("done")
+        expect(task.is_stale).to(be_false)
+        return task
+
+    def test_run_skips_fresh_task_without_force(self, real_pdp):
+        task = self._fresh_task(real_pdp)
+        real_pdp.run_task("task1")
+
+        expect((task.output_folder / "ran").exists()).to(be_false)
+
+    def test_run_force_runs_fresh_task(self, real_pdp):
+        task = self._fresh_task(real_pdp)
+        real_pdp.run_task("task1", force=True)
+
+        expect((task.output_folder / "ran").exists()).to(be_true)
+
+
+class TestTaskDepValidation:
+    def test_task_dep_without_entrypoint_is_valid(self, import_and_clean_project):
+        # Has to check hand/ folder for staleness
+        expect(import_and_clean_project.validation_errors()).to(equal([]))
+
+
+class TestRunReport:
+    def test_run_report_has_current_and_entrypointless_tasks(self, real_pdp):
+        fresh = real_pdp.create_task("fresh_task")
+        write_task_yml("fresh_task", entrypoint="touch output/ran")
+        backdate_task_yml(fresh)
+        (fresh.output_folder / "result.csv").write_text("done")
+        real_pdp.create_task("hand_only_task")
+
+        result = real_pdp.run_all()
+
+        expect(result.current).to(equal(["fresh_task"]))
+        expect(result.no_entrypoint).to(equal(["hand_only_task"]))
+        expect(result.exit_code).to(equal(0))
+
+    def test_run_report_includes_success_without_output(self, real_pdp):
+        real_pdp.create_task("task1")
+        write_task_yml("task1", entrypoint="true")
+
+        result = real_pdp.run_all()
+
+        expect(result.no_output).to(equal(["task1"]))
+        expect(result.exit_code).to(equal(0))
+
+    def test_run_report_lists_tasks_run(self, import_and_clean_project):
+        write_task_yml("import", entrypoint="touch output/data.csv")
+        write_task_yml("clean", entrypoint="touch output/ran", depends_on=["import"])
+        
+        result = import_and_clean_project.run_all()
+        
+        expect(result.ran).to(equal(["import", "clean"]))
+        

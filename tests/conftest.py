@@ -6,7 +6,7 @@ import pytest
 from pdp.pdp import PDP
 from pdp.pdp_config import PDPConfig
 from pdp.task import Task
-from tests.helpers import make_real_task, write_task_yml
+from tests.helpers import backdate_task_yml, make_real_task, write_task_yml
 
 
 @pytest.fixture
@@ -76,6 +76,7 @@ def import_and_clean(fs):
     write_task_yml("/clean", depends_on=["import"])
     clean = Task("clean", Path("/clean"))
     clean.scaffold()
+    backdate_task_yml(import_task, clean)
 
     return import_task, clean
 
@@ -86,6 +87,7 @@ def real_task(tmp_path):
     (tmp_path / "pdp.yml").write_text("name: test\ntasks:\n  - hello\n")
     task = Task("hello", tmp_path / "hello")
     task.scaffold()
+    backdate_task_yml(task)
 
     return task
 
@@ -94,7 +96,7 @@ def real_task(tmp_path):
 def real_chain(tmp_path):
     """import -> clean -> report on real filesystem"""
     (tmp_path / "pdp.yml").write_text(
-        "name: test\ntasks:\n  - importw\n  - clean\n  - report\n"
+        "name: test\ntasks:\n  - import\n  - clean\n  - report\n"
     )
     import_task = make_real_task(tmp_path, "import")
     clean = make_real_task(tmp_path, "clean", ["import"])
@@ -110,7 +112,8 @@ def two_deps_and_clean(pdp, fs):
     clean = pdp.create_task("clean")
     pdp.scaffold()
 
-    clean.task_config.update_config_key("depends_on", ["import2", "import2"])
+    clean.task_config.update_config_key("depends_on", ["import1", "import2"])
+    backdate_task_yml(import1, import2, clean)
 
     return import1, import2, clean
 

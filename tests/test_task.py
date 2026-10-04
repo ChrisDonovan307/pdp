@@ -7,7 +7,7 @@ from expects import *
 from ruamel.yaml import YAML
 
 from pdp.task import Task, latest_mtime_in_dir
-from tests.conftest import write_task_yml
+from tests.helpers import backdate_task_yml, write_task_yml
 
 
 def read_config_file(filename):
@@ -158,6 +158,7 @@ class TestStaleness:
 
     def test_task_not_stale_when_src_is_older(self, task, fs):
         task.scaffold()
+        backdate_task_yml(task)
 
         touch(task.src_folder / "script.py", 1000)
         touch(task.output_folder / "output.csv", 2000)
@@ -286,3 +287,23 @@ class TestStaleness:
         touch(report.output_folder / "report.csv", 4000)
 
         expect(report.is_stale).to(be_true)
+
+    def test_task_stale_when_task_yml_newer(self, real_task):
+        touch(real_task.output_folder / "result.csv", 1000)
+        touch(real_task.task_directory / "task.yml", 2000)
+
+        expect(real_task.is_stale).to(be_true)
+
+    def test_task_stale_when_task_root_file_is_newer(self, real_task):
+        touch(real_task.task_directory / "task.yml", 500)
+        touch(real_task.output_folder / "result.csv", 1000)
+        touch(real_task.task_directory / "Makefile", 2000)
+
+        expect(real_task.is_stale).to(be_true)
+
+    def test_task_staleness_ignores_hidden_files_at_task_root(self, real_task):
+        touch(real_task.task_directory / "task.yml", 500)
+        touch(real_task.output_folder / "result.csv", 1000)
+        touch(real_task.task_directory / ".task.yml.swp", 2000)
+
+        expect(real_task.is_stale).to(be_false)

@@ -5,7 +5,7 @@ from typing import ClassVar
 from ruamel.yaml import YAML
 
 from .pdp_errors import UninitializedProjectError
-from .utils import TASK_NAME_RULE, is_valid_task_name
+from .utils import TASK_NAME_RULE, input_env_var, is_valid_task_name
 
 
 def requires_initialization(method):
@@ -107,6 +107,17 @@ class PDPConfig(GenericConfig):
                     f"invalid task name '{task}': must be {TASK_NAME_RULE}"
                     for task in self.config["tasks"]
                     if not is_valid_task_name(task)
+                ]
+
+                # Check for name collision of PDP_INPUT_ vars after mutating
+                by_env_var: dict[str, list[str]] = {}
+                for task in self.config["tasks"]:
+                    if is_valid_task_name(task):
+                        by_env_var.setdefault(input_env_var(task), []).append(task)
+                errors += [
+                    f"task names {', '.join(names)} all map to {env_var}"
+                    for env_var, names in by_env_var.items()
+                    if len(names) > 1
                 ]
 
         return errors

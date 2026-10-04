@@ -33,6 +33,13 @@ def main(
     pass
 
 
+def _exit_validation_failed(error: InvalidConfigError):
+    err_console.print("Validation failed.")
+    for line in str(error).split("\n"):
+        err_console.print(f"  {line}")
+    raise typer.Exit(1)
+
+
 def load_pdp():
     pdp = PDP()
 
@@ -40,7 +47,10 @@ def load_pdp():
         err_console.print("No project detected. Try `pdp init`.")
         raise typer.Exit(1)
 
-    pdp.initialize()
+    try:
+        pdp.initialize()
+    except InvalidConfigError as e:
+        _exit_validation_failed(e)
 
     return pdp
 
@@ -105,7 +115,12 @@ def validate():
 
 
 @app.command()
-def run(task_id: Annotated[str | None, typer.Argument()] = None) -> None:
+def run(
+    task_id: Annotated[str | None, typer.Argument()] = None,
+    force: Annotated[
+        bool, typer.Option("--force", "-f", help="Run tasks regardless of staleness.")
+    ] = False,
+) -> None:
     """
     Run a task (by id) or all tasks (if no id given).
     """
@@ -114,9 +129,9 @@ def run(task_id: Annotated[str | None, typer.Argument()] = None) -> None:
 
     try:
         if task_id:
-            report: RunReport = pdp.run_task(task_id)
+            report: RunReport = pdp.run_task(task_id, force)
         elif pdp.current_path == Path("."):
-            report: RunReport = pdp.run_all()
+            report: RunReport = pdp.run_all(force)
         else:
             current_task = pdp.current_task
 
@@ -124,13 +139,24 @@ def run(task_id: Annotated[str | None, typer.Argument()] = None) -> None:
                 err_console.print(f"No task at {pdp.current_path}.")
                 raise typer.Exit(1)
 
-            report: RunReport = pdp.run_task(current_task.task_id)
+            report: RunReport = pdp.run_task(current_task.task_id, force)
     except InvalidConfigError as e:
-        err_console.print("Validation failed.")
-        for error in str(e).split("\n"):
-            err_console.print(f"  {error}")
+        _exit_validation_failed(e)
+    except ValueError as e:
+        # Bad task id
+        err_console.print(str(e))
         raise typer.Exit(1)
 
+    if report.ran:
+        console.print(f"Ran: {', '.join(report.ran)}")
+    if report.current:
+        console.print(f"Current: {', '.join(report.current)}")
+    if report.no_entrypoint:
+        console.print(f"No entrypoint, not run: {', '.join(report.no_entrypoint)}")
+    if report.no_output:
+        err_console.print(
+            f"Ran but wrote nothing to output/: {', '.join(report.no_output)}"
+        )
     if report.failed:
         err_console.print(f"Failed: {', '.join(report.failed)}")
     if report.skipped:

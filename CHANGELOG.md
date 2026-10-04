@@ -13,8 +13,8 @@ When merging to main:
 1. Bump version with `uv version --bump <major|minor|patch|alpha>`. This updates
    `pyproject.toml` and locks.
 2. Retitle `## [Unreleased]` to `## [<version>] - YYYY-MM-DD` and start a fresh
-   `## [Unreleased]` above it.
-3. Commit `pyproject.toml`, `uv.lock` and `CHANGELOG.md`, and tag `v<version>`.
+   `## [Unreleased]` above it. 3. Commit `pyproject.toml`, `uv.lock` and
+   `CHANGELOG.md`, and tag `v<version>`.
 
 ## [Unreleased]
 
@@ -24,16 +24,20 @@ When merging to main:
   dependencies.
 - Added `TopologicalSorter()` to `pdp.run_all()` and `pdp.run_task()` to
   determine task order
-- Added `task.depends_on()`
+- Added `task.depends_on()` for task dependencies
 - Dependency symlinks whole `task1/output/` directory to `task2/input/` when
   listed under `depends_on()`
 - `PDP_INPUT_<DEP>` env vars set for entrypoints as fallback when symlinks fail
   (i.e. Windows)
 - Failure handling:
-  - Runs create `RunReport`, which logs failed tasks, skipped tasks, and exit
-    code
   - On failed task, downstream tasks are skipped
   - On failed task, unrelated tasks still run
+  - Snapshot is taken before task run so that on failure, `pdp` removes what it
+    wrote in that run, leaving other outputs untouched.
+- Runs create `RunReport`, which prints tasks run successfully, tasks failed,
+  and tasks current (i.e. did not need to run)
+- Added `--force` flag to invalidate outputs and run all tasks regardless of
+  staleness
 
 ### Changed
 

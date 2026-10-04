@@ -103,3 +103,17 @@ def test_task_config_repr_prints_name_and_path(fs):
 
 def test_pdp_config_repr_prints_config_path(config, fs):
     expect(str(config)).to(equal("PDPConfig(test, /pdp.yml)"))
+
+
+def test_pdp_config_flags_task_names_with_colliding_env_vars(fs):
+    Path("pdp.yml").write_text(
+        "name: test\ntasks:\n  - import\n  - clean-data\n  - clean_data\n"
+        "  - Report\n  - report\n"
+    )
+
+    errors = PDPConfig("test", "pdp.yml").validation_errors()
+
+    expect(errors).to(equal([
+        "task names clean-data, clean_data all map to PDP_INPUT_CLEAN_DATA",
+        "task names Report, report all map to PDP_INPUT_REPORT",
+    ]))

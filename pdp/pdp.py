@@ -6,16 +6,24 @@ from rich.tree import Tree
 
 from .pdp_config import PDPConfig
 from .pdp_errors import InvalidConfigError
-from .task import Task
+from .task import Task, latest_mtime_in_dir
 from .utils import TASK_NAME_RULE, find_project_root, is_valid_task_name
 
 
 @dataclass
 class RunReport:
-    """Tasks that failed or were skipped because something upstream failed"""
+    """Results of running each task in scope, if not cleanly exited.
 
+    Failed and skipped (upstream failed) set exit code.
+    """
+
+    # Independent lists per result category
     failed: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    ran: list[str] = field(default_factory=list)
+    current: list[str] = field(default_factory=list)
+    no_entrypoint: list[str] = field(default_factory=list)
+    no_output: list[str] = field(default_factory=list)
 
     @property
     def exit_code(self) -> int:
@@ -35,8 +43,8 @@ class PDP:
         self.tasks: list[Task] = []
 
     def initialize(self) -> None:
-        if self.initialized and not self.validate():
-            raise InvalidConfigError("Invalid config file")
+        if self.initialized:
+            self._validate_or_raise()
 
         self.config.initialize()
         self.project_name = self.config.name
@@ -74,11 +82,6 @@ class PDP:
                 if dep not in flattened:
                     errors.append(
                         f"{task_id}/task.yml: depends_on references unknown task '{dep}'"
-                    )
-                elif not flattened[dep].entrypoint:
-                    errors.append(
-                        f"{task_id}/task.yml: depends_on references '{dep}', "
-                        "which is a group task with no output"
                     )
 
         graph = {task_id: task.depends_on for task_id, task in flattened.items()}
@@ -144,15 +147,19 @@ class PDP:
                 stack.extend(flattened[current].depends_on)
         return touched
 
-    def _run_many(self, flattened: dict[str, Task], task_ids) -> RunReport:
+    def _run_many(
+        self, flattened: dict[str, Task], task_ids, force: bool = False
+    ) -> RunReport:
         graph = {tid: task.depends_on for tid, task in flattened.items()}
         order = [
             tid
             for tid in TopologicalSorter(graph).static_order()
-            if tid in task_ids and flattened[tid].entrypoint
+            if tid in task_ids
         ]
 
         all_task_ids = set(flattened)
+
+        # Record issues for each task id to RunReport, then continue
         report = RunReport()
         for tid in order:
             task = flattened[tid]
@@ -161,10 +168,19 @@ class PDP:
             ):
                 report.skipped.append(tid)
                 continue
-            if task.is_stale:
-                task.create_symlinks(all_task_ids)
-                if task.run() != 0:
-                    report.failed.append(tid)
+            if not task.entrypoint:
+                report.no_entrypoint.append(tid)
+                continue
+            if not (force or task.is_stale):
+                report.current.append(tid)
+                continue
+            task.create_symlinks(all_task_ids)
+            if task.run() != 0:
+                report.failed.append(tid)
+            report.ran.append(tid)
+            if latest_mtime_in_dir(task.output_folder) is None:
+                # Empty output = stale task
+                report.no_output.append(tid)
 
         return report
 
@@ -172,18 +188,18 @@ class PDP:
         if not self.validate():
             raise InvalidConfigError("\n".join(self.validation_errors()))
 
-    def run_all(self) -> RunReport:
+    def run_all(self, force: bool = False) -> RunReport:
         flattened = self.flatten_tasks()
         self._validate_or_raise()
-        return self._run_many(flattened, flattened.keys())
+        return self._run_many(flattened, flattened.keys(), force)
 
-    def run_task(self, task_id: str) -> RunReport:
+    def run_task(self, task_id: str, force: bool = False) -> RunReport:
         flattened: dict[str, Task] = self.flatten_tasks()
         self._validate_or_raise()
         if task_id not in flattened:
             raise ValueError(f"Task {task_id} not found")
         scope = self._closure(flattened, task_id)
-        return self._run_many(flattened, scope)
+        return self._run_many(flattened, scope, force)
 
     def _find_task_by_id(self, task_id: str) -> Task | None:
         return self.flatten_tasks().get(task_id)

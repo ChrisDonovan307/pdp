@@ -77,11 +77,38 @@ class Task:
             for dep in self.depends_on
         }
 
-        # Pass env along with subprocess
+        # Snapshot to be able to revert changes
+        before = self._output_snapshot()
+
+        # Pass env along with subprocess. 
         result = subprocess.run(
             self.entrypoint, check=False, cwd=self.task_directory, shell=True, env=env
         )
+
+        # If failure, undo writes - otherwise it will look fresh when it should be stale
+        if result.returncode != 0:
+            for path, stat in self._output_snapshot().items():
+                if before.get(path) != stat:
+                    os.remove(path)
+
         return result.returncode
+
+    def _output_snapshot(self) -> dict[str, tuple[int, int]]:
+        """Record mtime_ns and size of every output/ file
+
+        Use this to determine what was already there and undo writes
+        without sullying outputs from other successful runs.
+
+        Returns:
+            snapshot: Dictionary with paths as keys and mtime_ns and size as values
+        """        
+        snapshot = {}
+        for root, _, files in os.walk(self.output_folder):
+            for file in files:
+                path = os.path.join(root, file)
+                stat = os.stat(path, follow_symlinks=False)
+                snapshot[path] = (stat.st_mtime_ns, stat.st_size)
+        return snapshot
 
     def validation_errors(self) -> list[str]:
         errors: list[str] = self.task_config.validation_errors()
@@ -140,8 +167,8 @@ class Task:
         if task_mtime is None:
             return True
 
-        # outputs older than input, src, hand, or a dependency's output.
-        # missing/empty folders skipped
+        # Check outputs older than input, src, hand, or a dependency's output.
+        # Missing/empty folders skipped
         for folder in (
             self.src_folder,
             self.input_folder,
@@ -150,6 +177,15 @@ class Task:
         ):
             mtime = latest_mtime_in_dir(folder)
             if mtime is not None and mtime > task_mtime:
+                return True
+
+        # Check files at task root. Skip hidden files, swaps
+        for file in self.task_directory.iterdir():
+            if (
+                file.is_file()
+                and not file.name.startswith(".")
+                and file.stat().st_mtime > task_mtime
+            ):
                 return True
 
         return False
