@@ -13,10 +13,15 @@ When merging to main:
 1. Bump version with `uv version --bump <major|minor|patch|alpha>`. This updates
    `pyproject.toml` and locks.
 2. Retitle `## [Unreleased]` to `## [<version>] - YYYY-MM-DD` and start a fresh
-   `## [Unreleased]` above it. 3. Commit `pyproject.toml`, `uv.lock` and
-   `CHANGELOG.md`, and tag `v<version>`.
+   `## [Unreleased]` above it.
+3. Commit `pyproject.toml`, `uv.lock` and `CHANGELOG.md` in their own commit and
+   merge to main
+4. Tag with `git tag -a v<version>-m "Release x.x.x"`, then
+   `git push origin main --folow-tags`.
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-10-04
 
 ### Added
 
@@ -49,5 +54,3 @@ When merging to main:
 - Removed hierarchical subtasks temporarily. Will return sometime.
 - Dropped the `graphlib` dependency and moved `pytest-cov` out of the runtime
   dependencies into the dev group.
-
-<!-- ## [1.1.0] - 2021-08-24 -->
