@@ -6,7 +6,7 @@ from rich.tree import Tree
 from .pdp_config import PDPConfig
 from .pdp_errors import InvalidConfigError
 from .task import Task
-from .utils import find_project_root
+from .utils import TASK_NAME_RULE, find_project_root, is_valid_task_name
 
 
 class PDP:
@@ -19,7 +19,7 @@ class PDP:
             self.config = config
         else:
             self.config = PDPConfig(project_name, self.project_root / "pdp.yml")
-        self.tasks: list[Task]= []
+        self.tasks: list[Task] = []
 
     def initialize(self) -> None:
         if self.initialized and not self.validate():
@@ -35,11 +35,11 @@ class PDP:
         """Reasons the project fails validation
 
         Checks pdp.yml, input dir, output dir, adn task.yml for each task.
-        Checks that Depends_on_tasks references real task, and no dependency cycles.
+        Checks that Depends_on references real task, and no dependency cycles.
 
         Returns:
             A list of strings of error messages. Empty if valid.
-        """        
+        """
 
         if not self.initialized:
             return ["Project not initialized."]
@@ -57,22 +57,22 @@ class PDP:
         flattened = self.flatten_tasks()
 
         for task_id, task in flattened.items():
-            for dep in task.depends_on_tasks:
+            for dep in task.depends_on:
                 if dep not in flattened:
                     errors.append(
-                        f"{task_id}/task.yml: depends_on_tasks references unknown task '{dep}'"
+                        f"{task_id}/task.yml: depends_on references unknown task '{dep}'"
                     )
                 elif not flattened[dep].entrypoint:
                     errors.append(
-                        f"{task_id}/task.yml: depends_on_tasks references '{dep}', "
+                        f"{task_id}/task.yml: depends_on references '{dep}', "
                         "which is a group task with no output"
                     )
 
-        graph = {task_id: task.depends_on_tasks for task_id, task in flattened.items()}
+        graph = {task_id: task.depends_on for task_id, task in flattened.items()}
         try:
             TopologicalSorter(graph).prepare()
         except CycleError:
-            errors.append("depends_on_tasks contains a cycle.")
+            errors.append("depends_on contains a cycle.")
 
         return errors
 
@@ -80,6 +80,9 @@ class PDP:
         return not self.validation_errors()
 
     def create_task(self, task_name: str) -> Task:
+        if not is_valid_task_name(task_name):
+            raise ValueError(f"invalid task name '{task_name}': must be {TASK_NAME_RULE}")
+
         self.config.add_task(task_name)
 
         task_directory = self.project_root / task_name
@@ -105,24 +108,42 @@ class PDP:
         for task in self.tasks:
             task.create_symlinks(task_ids)
 
-    def _closure(self, flattened, task_id):
-        """Include task_id and anything it depends on"""
-        seen, stack = set(), [task_id]
+    def _closure(self, flattened: dict[str, Task], task_id: str) -> set[str]:
+        """Return task_id plus every task's task_id that it depends on.
+
+        if project is import -> clean -> analyze, closure is {import, clean, analyze}
+
+        Args:
+            flattened: Every task in project
+            task_id: Current task to run
+            
+        Returns:
+            A set of every task_id in scope
+        """
+        touched = set()
+        stack = [task_id]
         while stack:
             current = stack.pop()
-            if current not in seen:
-                seen.add(current)
-                stack.extend(flattened[current].depends_on_tasks)
-        return seen
+            if current not in touched:
+                touched.add(current)
+                stack.extend(flattened[current].depends_on)
+        return touched
 
-    def _run_many(self, flattened, task_ids) -> int:
-        graph = {tid: task.depends_on_tasks for tid, task in flattened.items()}
+    def _run_many(self, flattened: dict[str, Task], task_ids) -> int:
+        graph = {tid: task.depends_on for tid, task in flattened.items()}
         order = [
             tid
             for tid in TopologicalSorter(graph).static_order()
             if tid in task_ids and flattened[tid].entrypoint
         ]
-        returncodes = [flattened[tid].run() for tid in order if flattened[tid].is_stale]
+
+        all_task_ids = set(flattened)
+        returncodes = []
+        for tid in order:
+            task = flattened[tid]
+            if task.is_stale:
+                task.create_symlinks(all_task_ids)
+                returncodes.append(task.run())
 
         return 0 if all(rc == 0 for rc in returncodes) else 1
 
@@ -136,7 +157,7 @@ class PDP:
         return self._run_many(flattened, flattened.keys())
 
     def run_task(self, task_id: str) -> int:
-        flattened = self.flatten_tasks()
+        flattened: dict[str, Task] = self.flatten_tasks()
         self._validate_or_raise()
         if task_id not in flattened:
             raise ValueError(f"Task {task_id} not found")

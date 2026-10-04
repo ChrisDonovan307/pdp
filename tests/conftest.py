@@ -7,18 +7,7 @@ from ruamel.yaml import YAML
 from pdp.pdp import PDP
 from pdp.pdp_config import PDPConfig
 from pdp.task import Task
-
-
-def write_task_yml(task_dir, *, entrypoint="", depends_on_tasks=(), **overrides):
-    """Write a valid flat task.yml into task_dir"""
-    task_dir = Path(task_dir)
-    config = {
-        "name": task_dir.name,
-        "entrypoint": entrypoint,
-        "depends_on_tasks": list(depends_on_tasks),
-        **overrides,
-    }
-    YAML().dump(config, task_dir / "task.yml")
+from tests.helpers import make_real_task, write_task_yml
 
 
 @pytest.fixture
@@ -85,20 +74,11 @@ def import_and_clean(fs):
     import_task.scaffold()
 
     Path("/clean").mkdir()
-    write_task_yml("/clean", depends_on_tasks=["import"])
+    write_task_yml("/clean", depends_on=["import"])
     clean = Task("clean", Path("/clean"))
     clean.scaffold()
 
     return import_task, clean
-
-
-def make_real_task(root: Path, name: str, deps=()) -> Task:
-    (root / name).mkdir()
-    write_task_yml(root / name, depends_on_tasks=deps)
-    task = Task(name, root / name)
-    task.scaffold()
-
-    return task
 
 
 @pytest.fixture
@@ -131,7 +111,7 @@ def two_deps_and_clean(pdp, fs):
     clean = pdp.create_task("clean")
     pdp.scaffold()
 
-    clean.task_config.update_config_key("depends_on_tasks", ["import2", "import2"])
+    clean.task_config.update_config_key("depends_on", ["import2", "import2"])
 
     return import1, import2, clean
 
@@ -151,6 +131,16 @@ def import_and_clean_project(real_pdp):
     """Real project where clean depends on import"""
     real_pdp.create_task("import")
     real_pdp.create_task("clean")
-    write_task_yml("clean", depends_on_tasks=["import"])
+    write_task_yml("clean", depends_on=["import"])
 
     return real_pdp
+
+
+@pytest.fixture
+def refuse_symlinks(monkeypatch):
+    """Use to test that run_task works on Windows where symlinks fail"""
+
+    def refuse(*args, **kwargs):
+        raise OSError("symlinks not permitted")
+
+    monkeypatch.setattr(Path, "symlink_to", refuse)

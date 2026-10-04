@@ -1,7 +1,7 @@
 import os
 import subprocess
 from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import ANY, call, patch
 
 import pytest
 from expects import *
@@ -80,7 +80,7 @@ def test_runs_current_task(runner, fs):
 
     with patch("subprocess.run", return_value=mock_result) as mock_run:
         result = runner.invoke(app, ["run"])
-        mock_run.assert_called_once_with("echo hello", cwd=Path("/hello"), shell=True, check=False)
+        mock_run.assert_called_once_with("echo hello", cwd=Path("/hello"), shell=True, check=False, env=ANY)
         expect(result.exit_code).to(equal(0))
 
 
@@ -104,8 +104,8 @@ def test_runs_whole_project(runner, fs):
         result = runner.invoke(app, ["run"])
         mock_run.assert_has_calls(
             [
-                call("echo hello", cwd=Path("/hello"), shell=True, check=False),
-                call("echo world", cwd=Path("/world"), shell=True, check=False),
+                call("echo hello", cwd=Path("/hello"), shell=True, check=False, env=ANY),
+                call("echo world", cwd=Path("/world"), shell=True, check=False, env=ANY),
             ]
         )
         expect(result.exit_code).to(equal(0))
@@ -124,3 +124,21 @@ def test_tree_enumerates_tasks_as_flat_list(runner, fs):
 """
         )
     )
+
+
+# Run for validate, tree
+@pytest.mark.parametrize("command", ["validate", "tree"])
+def test_read_only_commands_create_no_symlinks(command, import_and_clean_project):
+    result = CliRunner(mix_stderr=False).invoke(app, [command])
+
+    expect(result.stderr).not_to(contain("No project detected"))
+    expect(os.path.lexists("clean/input/import")).to(be_false)
+
+
+def test_create_rejects_invalid_task_name(runner, fs):
+    bad_name= "bad.task..name"
+    result = runner.invoke(app, ["create", bad_name])
+
+    expect(result.exit_code).to(equal(1))
+    expect(result.stderr).to(contain(f"invalid task name '{bad_name}'"))
+    expect(Path(f"/{bad_name}").exists()).to(be_false)

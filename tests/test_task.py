@@ -1,7 +1,7 @@
 import os
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from expects import *
 from ruamel.yaml import YAML
@@ -33,7 +33,7 @@ class TestScaffold:
         with patch("subprocess.run", return_value=mock_result) as mock_run:
             return_code = task.run()
             mock_run.assert_called_once_with(
-                "echo hello", cwd=task.task_directory, shell=True, check=False
+                "echo hello", cwd=task.task_directory, shell=True, check=False, env=ANY
             )
             expect(return_code).to(equal(0))
 
@@ -68,7 +68,7 @@ class Validate:
     def test_task_validate_raises_on_unscaffolded_task(self, task, fs):
         errors = task.validation_errors()
 
-        expect(errors).to(contain("Missing key(s): depends_on_tasks, entrypoint, name"))
+        expect(errors).to(contain("Missing key(s): depends_on, entrypoint, name"))
         expect(errors).to(contain("name must be a non-empty string"))
         expect(errors).to(contain("input/ folder is missing"))
         expect(errors).to(contain("output/ folder is missing"))

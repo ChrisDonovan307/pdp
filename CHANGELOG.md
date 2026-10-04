@@ -10,8 +10,11 @@ and this project adheres to
 
 ### Added
 
-- Added `task.depends_on()` and topological sort
-- Added `task.is_stale()` based on mtimes of task dependencies
+- Added `task.is_stale()` based on mtimes of task dirs and staleness of task dependencies.
+- Added `TopologicalSorter()` to `pdp.run_all()` and `pdp.run_task()` to determine task order
+- Added `task.depends_on()`
+- Dependency symlinks whole `task1/output/` directory to `task2/input/` when listed under `depends_on()`
+- `PDP_INPUT_<DEP>` env vars set for entrypoints as fallback when symlinks fail (i.e. Windows)
 
 ### Changed
 
@@ -20,6 +23,7 @@ and this project adheres to
 
 ### Removed
 
+- Removed hierarchical subtasks temporarily. Will return sometime.
 - Dropped the `graphlib` dependency and moved `pytest-cov` out of the runtime
   dependencies into the dev group.
 

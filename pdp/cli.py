@@ -71,6 +71,9 @@ def scaffold():
 def create(task_names: list[str]) -> None:
     """
     Create a task.
+    
+    Task names may contain uppercase or lowercase letters, numbers, and single underscores
+    or dashes.
     """
 
     pdp = load_pdp()

@@ -50,7 +50,7 @@ Run the tests with `uv run pytest`, and the CLI with `uv run pdp`.
 ### Starting a new project from scratch
 
 - Run `pdp init` from the root of a project. It creates a file called `pdp.yml`, which contains metadata about the project, and marks the project root.
-- Run `pdp create <name_of_task1> <name_of_task2> ... <name_of_taskN>` to create tasks. This creates directories for each task, a `task.yml` configuration file, as well as the `src`, `input`, and `output` folders within that task.
+- Run `pdp create <name_of_task1> <name_of_task2> ... <name_of_taskN>` to create tasks. This creates directories for each task, a `task.yml` configuration file, as well as the `src`, `input`, and `output` folders within that task. Task names may contain upper or lower cases letters, digits, and can be separated by one or more single underscores (`_`) or dashes (`-`).
 - Edit each `task.yml` to designate a specific command to run as an entrypoint, such as `make`.
 - Run `pdp run` from within a task to run that task. If in the project root, this runs all tasks.
 
@@ -61,7 +61,7 @@ Run the tests with `uv run pytest`, and the CLI with `uv run pdp`.
 
 ## Contributing
 
-All code should be formatted and linted with [Ruff](https://github.com/astral-sh/ruff). Use [Google style docstrings](https://google.github.io/styleguide/pyguide.html#docstrings)
+Code should be formatted and linted with [Ruff](https://github.com/astral-sh/ruff). Use [Google style docstrings](https://google.github.io/styleguide/pyguide.html#docstrings).
 
 ## About
 

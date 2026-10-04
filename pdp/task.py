@@ -6,7 +6,7 @@ import warnings
 from pathlib import Path
 
 from .pdp_config import TaskConfig
-from .utils import find_project_root
+from .utils import find_project_root, input_env_var
 
 
 def latest_mtime_in_dir(dir: Path):
@@ -48,7 +48,7 @@ class Task:
         Then declares new symlinks.
 
         Args:
-            task_ids: _description_
+            task_ids: Set of task ids as strings
         """        
         root = find_project_root(config_name="pdp.yml", start=self.task_directory)
         for entry in self.input_folder.iterdir():
@@ -60,7 +60,7 @@ class Task:
             ):
                 entry.unlink()
 
-        for dep in self.depends_on_tasks:
+        for dep in self.depends_on:
             try:
                 (self.input_folder / dep).symlink_to(Path("..", "..", dep, "output"))
             except OSError as e:  # catch Windows - can't symlink without privilege
@@ -70,8 +70,16 @@ class Task:
         if not self.entrypoint:
             return 0
 
+        # Create env path to dependency outputs in case symlink fails (Windows, Slurm)
+        root = find_project_root(config_name="pdp.yml", start=self.task_directory)
+        env = os.environ | {
+            input_env_var(dep): str(root / dep / "output")
+            for dep in self.depends_on
+        }
+
+        # Pass env along with subprocess
         result = subprocess.run(
-            self.entrypoint, check=False, cwd=self.task_directory, shell=True
+            self.entrypoint, check=False, cwd=self.task_directory, shell=True, env=env
         )
         return result.returncode
 
@@ -85,7 +93,7 @@ class Task:
         if self.hand_folder is not None and not self.hand_folder.is_dir():
             errors.append("hand/ folder is missing")
 
-        for dep in self.depends_on_tasks:
+        for dep in self.depends_on:
             link = self.input_folder / dep
             if not link.is_symlink() and link.exists():
                 errors.append(
@@ -102,8 +110,8 @@ class Task:
         return self.task_config.entrypoint
 
     @property
-    def depends_on_tasks(self) -> list[str]:
-        return self.task_config.depends_on_tasks
+    def depends_on(self) -> list[str]:
+        return self.task_config.depends_on
 
     def __repr__(self):
         return f"Task({self.task_name}, {self.task_directory})"
@@ -124,7 +132,7 @@ class Task:
 
         # stale dependency
         root = find_project_root("pdp.yml", start=self.task_directory)
-        if any(Task(dep, root / dep).is_stale for dep in self.depends_on_tasks):
+        if any(Task(dep, root / dep).is_stale for dep in self.depends_on):
             return True
 
         # missing outputs (no folder, empty, or no readable files)
@@ -138,7 +146,7 @@ class Task:
             self.src_folder,
             self.input_folder,
             self.task_directory / "hand",
-            *(root / dep / "output" for dep in self.depends_on_tasks),
+            *(root / dep / "output" for dep in self.depends_on),
         ):
             mtime = latest_mtime_in_dir(folder)
             if mtime is not None and mtime > task_mtime:

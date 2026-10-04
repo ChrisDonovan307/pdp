@@ -5,6 +5,7 @@ from expects import *
 from ruamel.yaml import YAML
 
 from pdp.pdp_config import PDPConfig, TaskConfig
+from pdp.utils import TASK_NAME_RULE
 
 
 @pytest.fixture
@@ -17,21 +18,30 @@ def read_config_file(filename):
     return dict(YAML().load(Path(filename)))
 
 
-def test_config_initialization(config, fs):
-    expect(config.read_config_file()).to(equal({}))
+class TestInit:
+    def test_config_initialization(self, config, fs):
+        expect(config.read_config_file()).to(equal({}))
 
-    config.path_to_config.touch()
-    expect(config.read_config_file()).to(equal({}))
+        config.path_to_config.touch()
+        expect(config.read_config_file()).to(equal({}))
 
-    expect(config.initialized).to(be_false)
+        expect(config.initialized).to(be_false)
 
+    def test_config_initialize_creates_file(self, config, fs):
+        config.initialize()
 
-def test_config_initialize_creates_file(config, fs):
-    config.initialize()
+        config_dict = read_config_file("pdp.yml")
+        expect(config_dict["name"]).to(equal("test"))
+        expect(config_dict["tasks"]).to(equal([]))
 
-    config_dict = read_config_file("pdp.yml")
-    expect(config_dict["name"]).to(equal("test"))
-    expect(config_dict["tasks"]).to(equal([]))
+    def test_task_config_initializes_with_entrypoint(self, fs):
+        # TODO: Bring back subtasks
+        config = TaskConfig("task1", "task.yml")
+        config.initialize()
+
+        config_dict = read_config_file("task.yml")
+        expect(config_dict["entrypoint"]).to(equal(""))
+        expect(config_dict["depends_on"]).to(equal([]))
 
 
 def test_config_add_task(config, fs):
@@ -50,48 +60,40 @@ def test_config_add_task(config, fs):
     expect(config_dict["tasks"]).to(equal(["hello", "world"]))
 
 
-def test_config_validate(config, fs):
-    config.initialize()
+class TestValidate:
+    def test_config_validate(self, config, fs):
+        config.initialize()
 
-    expect(config.validate()).to(be_true)
+        expect(config.validate()).to(be_true)
 
-    config.update_config({"tasks": "hello"})
-    expect(config.validate()).to(be_false)
+        config.update_config({"tasks": "hello"})
+        expect(config.validate()).to(be_false)
 
-    config.update_config({"no_tasks": 123})
-    expect(config.validate()).to(be_false)
+        config.update_config({"no_tasks": 123})
+        expect(config.validate()).to(be_false)
 
+    def test_config_validate_flags_bad_task_name(self, fs):
+        Path("pdp.yml").write_text("name: test\ntasks:\n  - import\n  - clean.data\n")
 
-def test_task_config_initializes_with_entrypoint_and_subtasks(fs):
-    config = TaskConfig("task1", "task.yml")
-    config.initialize()
+        errors = PDPConfig("test", "pdp.yml").validation_errors()
 
-    config_dict = read_config_file("task.yml")
-    expect(config_dict["entrypoint"]).to(equal(""))
-    expect(config_dict["depends_on_tasks"]).to(equal([]))
+        expect(errors).to(
+            equal([f"invalid task name 'clean.data': must be {TASK_NAME_RULE}"])
+        )
 
+    def test_task_config_validation_requires_default_config_keys(self, fs):
+        config = TaskConfig("task1", "task.yml")
+        config.initialize()
 
-def test_task_config_validation_requires_default_config_keys(fs):
-    config = TaskConfig("task1", "task.yml")
-    config.initialize()
+        expect(config.validate()).to(be_true)
 
-    expect(config.validate()).to(be_true)
+        # only subtasks, without entrypoint
+        config.update_config({"subtasks": []})
+        expect(config.validate()).to(be_false)
 
-    # only subtasks, without entrypoint
-    config.update_config({"subtasks": []})
-    expect(config.validate()).to(be_false)
-
-    # only entrypoint, without subtasks
-    config.update_config({"entrypoint": "make"})
-    expect(config.validate()).to(be_false)
-
-
-def test_task_config_no_longer_manages_subtasks(fs):
-    config = TaskConfig("task1", "task.yml")
-    config.initialize()
-
-    expect(hasattr(config, "add_task")).to(be_false)
-    expect(hasattr(config, "tasks")).to(be_false)
+        # only entrypoint, without subtasks
+        config.update_config({"entrypoint": "make"})
+        expect(config.validate()).to(be_false)
 
 
 def test_task_config_repr_prints_name_and_path(fs):

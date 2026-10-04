@@ -5,6 +5,7 @@ from typing import ClassVar
 from ruamel.yaml import YAML
 
 from .pdp_errors import UninitializedProjectError
+from .utils import TASK_NAME_RULE, is_valid_task_name
 
 
 def requires_initialization(method):
@@ -101,6 +102,12 @@ class PDPConfig(GenericConfig):
                 errors.append(
                     f"tasks must be a list, got {type(self.config['tasks']).__name__}"
                 )
+            else:
+                errors += [
+                    f"invalid task name '{task}': must be {TASK_NAME_RULE}"
+                    for task in self.config["tasks"]
+                    if not is_valid_task_name(task)
+                ]
 
         return errors
 
@@ -108,7 +115,7 @@ class PDPConfig(GenericConfig):
 class TaskConfig(GenericConfig):
     CONFIG_DEFAULTS: ClassVar[dict[str, object]] = {
         "entrypoint": "",
-        "depends_on_tasks": [],
+        "depends_on": [],
     }
 
     def initialize(self) -> None:
@@ -157,6 +164,6 @@ class TaskConfig(GenericConfig):
 
     @property
     @requires_initialization
-    def depends_on_tasks(self):
+    def depends_on(self):
         self.config = self.read_config_file()
-        return self.config.get("depends_on_tasks", [])
+        return self.config.get("depends_on", [])

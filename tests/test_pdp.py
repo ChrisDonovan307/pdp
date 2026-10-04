@@ -1,7 +1,7 @@
 import os
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 from expects import *
@@ -71,15 +71,15 @@ class TestValidate:
 
     def test_pdp_validate_raises_when_depends_on_bad_task(self, pdp):
         task = pdp.create_task("hello")
-        task.task_config.update_config_key("depends_on_tasks", ["bad_task"])
+        task.task_config.update_config_key("depends_on", ["bad_task"])
         expect(pdp.validate()).to(be_false)
 
     def test_pdp_validate_raises_on_cycle(self, pdp):
         task1 = pdp.create_task("hello")
-        task1.task_config.update_config_key("depends_on_tasks", ["world"])
+        task1.task_config.update_config_key("depends_on", ["world"])
 
         task2 = pdp.create_task("world")
-        task2.task_config.update_config_key("depends_on_tasks", ["hello"])
+        task2.task_config.update_config_key("depends_on", ["hello"])
 
         expect(pdp.validate()).to(be_false)
 
@@ -134,7 +134,9 @@ class TestScaffoldTask:
         expect(hello_path_input.exists()).to(be_true)
         expect(hello_path_output.exists()).to(be_true)
 
-    def test_pdp_create_task_from_inside_task_throws_error(self, hello_world_tasks, pdp):
+    def test_pdp_create_task_from_inside_task_throws_error(
+        self, hello_world_tasks, pdp
+    ):
         pdp.scaffold()
 
         os.chdir("hello")
@@ -223,7 +225,7 @@ class TestRun:
         with patch("subprocess.run", return_value=mock_result) as mock_run:
             return_code = pdp.run_task("hello")
             mock_run.assert_called_once_with(
-                "make", cwd=task.task_directory, shell=True, check=False
+                "make", cwd=task.task_directory, shell=True, check=False, env=ANY
             )
             expect(return_code).to(equal(0))
 
@@ -244,20 +246,20 @@ class TestRun:
 
     def test_pdp_run_all_raises_for_cycle(self, pdp):
         task1 = pdp.create_task("hello")
-        task1.task_config.update_config_key("depends_on_tasks", ["world"])
+        task1.task_config.update_config_key("depends_on", ["world"])
 
         task2 = pdp.create_task("world")
-        task2.task_config.update_config_key("depends_on_tasks", ["hello"])
+        task2.task_config.update_config_key("depends_on", ["hello"])
 
         with pytest.raises(InvalidConfigError):
             pdp.run_all()
 
     def test_pdp_run_task_raises_for_cycle(self, pdp):
         task1 = pdp.create_task("hello")
-        task1.task_config.update_config_key("depends_on_tasks", ["world"])
+        task1.task_config.update_config_key("depends_on", ["world"])
 
         task2 = pdp.create_task("world")
-        task2.task_config.update_config_key("depends_on_tasks", ["hello"])
+        task2.task_config.update_config_key("depends_on", ["hello"])
 
         with pytest.raises(InvalidConfigError):
             pdp.run_task("hello")
@@ -268,8 +270,8 @@ class TestRun:
         for name in ("import", "clean", "report", "unrelated"):
             pdp.create_task(name)
         write_task_yml("/import", entrypoint="echo import")
-        write_task_yml("/clean", entrypoint="echo clean", depends_on_tasks=["import"])
-        write_task_yml("/report", entrypoint="echo report", depends_on_tasks=["clean"])
+        write_task_yml("/clean", entrypoint="echo clean", depends_on=["import"])
+        write_task_yml("/report", entrypoint="echo report", depends_on=["clean"])
         write_task_yml("/unrelated", entrypoint="echo unrelated")
 
         ok = subprocess.CompletedProcess(args=[], returncode=0)
@@ -284,7 +286,9 @@ class TestRun:
 
 
 class TestSymlinks:
-    def test_scaffold_symlinks_dependency_output_into_input(self, import_and_clean_project):
+    def test_scaffold_symlinks_dependency_output_into_input(
+        self, import_and_clean_project
+    ):
         import_and_clean_project.scaffold()
 
         link = Path("clean/input/import")
@@ -310,7 +314,7 @@ class TestSymlinks:
     def test_scaffold_symlink_resolves_when_dependency_output_missing(self, real_pdp):
         real_pdp.create_task("clean")
         real_pdp.create_task("import")
-        write_task_yml("clean", depends_on_tasks=["import"])
+        write_task_yml("clean", depends_on=["import"])
         Path("import/output").rmdir()
 
         real_pdp.scaffold()
@@ -322,18 +326,24 @@ class TestSymlinks:
         import_and_clean_project.scaffold()
 
         expect(os.listdir("clean/input")).to(equal(["import"]))
-        expect(Path("clean/input/import").resolve()).to(equal(Path("import/output").resolve()))
+        expect(Path("clean/input/import").resolve()).to(
+            equal(Path("import/output").resolve())
+        )
 
-    def test_rescaffold_prunes_link_for_removed_dependency(self, import_and_clean_project):
+    def test_rescaffold_prunes_link_for_removed_dependency(
+        self, import_and_clean_project
+    ):
         import_and_clean_project.scaffold()
-        write_task_yml("clean", depends_on_tasks=[])
+        write_task_yml("clean", depends_on=[])
 
         import_and_clean_project.scaffold()
 
         expect(os.path.lexists("clean/input/import")).to(be_false)
 
-    def test_rescaffold_never_removes_hand_made_file_in_input(self, import_and_clean_project):
-        write_task_yml("clean", depends_on_tasks=[])
+    def test_rescaffold_never_removes_hand_made_file_in_input(
+        self, import_and_clean_project
+    ):
+        write_task_yml("clean", depends_on=[])
         Path("clean/input/import").write_text("mine")
         Path("clean/input/notes.csv").write_text("mine")
 
@@ -346,7 +356,7 @@ class TestSymlinks:
         self, import_and_clean_project, tmp_path_factory
     ):
         outside = tmp_path_factory.mktemp("elsewhere")
-        write_task_yml("clean", depends_on_tasks=[])
+        write_task_yml("clean", depends_on=[])
         Path("clean/input/import").symlink_to(outside)
 
         import_and_clean_project.scaffold()
@@ -363,14 +373,130 @@ class TestSymlinks:
         expect(errors).to(contain(contain("input/import")))
 
     def test_symlink_failure_warns_and_scaffold_completes(
-        self, import_and_clean_project, monkeypatch
+        self, import_and_clean_project, refuse_symlinks
     ):
-        def refuse(*args, **kwargs):
-            raise OSError("symlinks not permitted")
-
-        monkeypatch.setattr(Path, "symlink_to", refuse)
 
         with pytest.warns(UserWarning, match="input/import"):
             import_and_clean_project.scaffold()
 
         expect(Path("clean/output").is_dir()).to(be_true)
+
+    def test_pdp_run_task_creates_symlinks_before_entrypoint(
+        self, import_and_clean_project
+    ):
+        write_task_yml("import", entrypoint="touch output/data.csv")
+        write_task_yml(
+            "clean",
+            entrypoint="test -f input/import/data.csv",
+            depends_on=["import"],
+        )
+
+        expect(import_and_clean_project.run_task("clean")).to(equal(0))
+
+
+class TestDependencyEnvPaths:
+    def test_run_sets_dep_env_var_to_output_path(
+        self, import_and_clean_project
+    ):
+        """Entrypoint should read input variable from env"""
+
+        write_task_yml("import", entrypoint="touch output/data.csv")
+        write_task_yml(
+            "clean",
+            entrypoint='echo "$PDP_INPUT_IMPORT" > output/env.txt',
+            depends_on=["import"],
+        )
+
+        import_and_clean_project.run_task("clean")
+
+        expect(Path("clean/output/env.txt").read_text().strip()).to(
+            equal(str(Path("import/output").resolve()))
+        )
+
+    def test_run_sets_no_dep_env_vars_without_deps(self, real_pdp):
+        real_pdp.create_task("task1")
+        write_task_yml(
+            "task1", entrypoint="env | grep ^PDP_INPUT_ > output/env.txt; true"
+        )
+
+        real_pdp.run_task("task1")
+
+        expect(Path("task1/output/env.txt").read_text()).to(equal(""))
+
+    def test_run_task_keeps_inherited_env(self, real_pdp, monkeypatch):
+        monkeypatch.setenv("PDP_TEST_VAR", "kept")
+        real_pdp.create_task("task")
+        write_task_yml("task", entrypoint='echo "$PDP_TEST_VAR" > output/env.txt')
+
+        real_pdp.run_task("task")
+
+        expect(Path("task/output/env.txt").read_text().strip()).to(equal("kept"))
+
+    def test_run_task_uses_dep_data_via_env_when_symlink_fails(
+        self, import_and_clean_project, refuse_symlinks
+    ):
+        """Windows/Slurm case: symlink fails, but task should still work"""
+
+        write_task_yml("import", entrypoint="echo hello > output/data.csv")
+        write_task_yml(
+            "clean",
+            entrypoint='cat "$PDP_INPUT_IMPORT/data.csv" > output/copy.csv',
+            depends_on=["import"],
+        )
+
+        with pytest.warns(UserWarning, match="input/import"):
+            return_code = import_and_clean_project.run_task("clean")
+
+        expect(os.path.lexists("clean/input/import")).to(be_false)
+        expect(return_code).to(equal(0))
+        expect(Path("clean/output/copy.csv").read_text()).to(equal("hello\n"))
+
+    def test_run_env_var_name_replaces_dash_with_underscore(self, real_pdp):
+        real_pdp.create_task("clean-data")
+        real_pdp.create_task("report")
+        write_task_yml("clean-data", entrypoint="touch output/data.csv")
+        write_task_yml(
+            "report",
+            entrypoint='echo "$PDP_INPUT_CLEAN_DATA" > output/env.txt',
+            depends_on=["clean-data"],
+        )
+
+        real_pdp.run_task("report")
+
+        expect(Path("report/output/env.txt").read_text().strip()).to(
+            equal(str(Path("clean-data/output").resolve()))
+        )
+
+
+class TestTaskNames:
+    @pytest.mark.parametrize(
+        "task_name",
+        [
+            "clean__data",
+            "clean--data",
+            "clean-_data",
+            "_clean",
+            "clean_",
+            "-clean",
+            "clean-",
+            "clean.v2",
+            "clean/p1",
+            "",
+        ],
+    )
+    def test_pdp_create_task_rejects_invalid_task_name(self, pdp, task_name):
+        with pytest.raises(ValueError, match="invalid task name"):
+            pdp.create_task(task_name)
+
+        expect(pdp.config.tasks).to(equal([]))
+        if task_name:
+            expect(Path(task_name).exists()).to(be_false)
+
+    @pytest.mark.parametrize(
+        "task_name",
+        ["import", "clean_data", "clean-data", "Clean", "CleanData2", "2026", "task-clean-v2_3"],
+    )
+    def test_pdp_create_task_accepts_valid_task_name(self, pdp, task_name):
+        pdp.create_task(task_name)
+
+        expect(pdp.config.tasks).to(equal([task_name]))
