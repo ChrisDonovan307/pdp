@@ -1,5 +1,4 @@
 from graphlib import CycleError, TopologicalSorter
-from itertools import count
 from pathlib import Path
 
 from rich.tree import Tree
@@ -14,13 +13,13 @@ class PDP:
     def __init__(
         self, project_name: str | None = None, config: PDPConfig | None = None
     ) -> None:
-        self.project_name = project_name
+        self.project_name: str | None = project_name
 
         if config:
             self.config = config
         else:
             self.config = PDPConfig(project_name, self.project_root / "pdp.yml")
-        self.tasks = []
+        self.tasks: list[Task]= []
 
     def initialize(self) -> None:
         if self.initialized and not self.validate():
@@ -33,9 +32,14 @@ class PDP:
             self.create_task(task)
 
     def validation_errors(self) -> list[str]:
-        """Reasons the project fails validation; empty if it's valid.
+        """Reasons the project fails validation
+
         Checks pdp.yml, input dir, output dir, adn task.yml for each task.
-        Checks that Depends_on_tasks references real task, and no dependency cycles."""
+        Checks that Depends_on_tasks references real task, and no dependency cycles.
+
+        Returns:
+            A list of strings of error messages. Empty if valid.
+        """        
 
         if not self.initialized:
             return ["Project not initialized."]
@@ -94,8 +98,12 @@ class PDP:
         raise ValueError("tasks can only be created at the project root")
 
     def scaffold(self) -> None:
+        """Set up folders for each task, then set symlinks for outputs"""
         for task in self.tasks:
             task.scaffold()
+        task_ids: set[str] = set(self.flatten_tasks())
+        for task in self.tasks:
+            task.create_symlinks(task_ids)
 
     def _closure(self, flattened, task_id):
         """Include task_id and anything it depends on"""
@@ -146,7 +154,8 @@ class PDP:
         return tree
 
     def flatten_tasks(self) -> dict[str, Task]:
-        """Create flat dict of tasks
+        """Create dict of tasks. This is where subtask flattening would happen,
+        temporarily deferred.
 
         Returns:
             dict[task_id, Task]: Tasks

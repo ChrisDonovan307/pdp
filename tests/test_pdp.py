@@ -263,12 +263,12 @@ class TestRun:
             pdp.run_task("hello")
 
     def test_pdp_run_task_runs_dependency_closure_and_nothing_else(self, pdp):
-        """raw <- clean <- report, plus unrelated. Running clean runs raw then
+        """import <- clean <- report, plus unrelated. Running clean runs import then
         clean: not its dependent (report), not the unrelated task."""
-        for name in ("raw", "clean", "report", "unrelated"):
+        for name in ("import", "clean", "report", "unrelated"):
             pdp.create_task(name)
-        write_task_yml("/raw", entrypoint="echo raw")
-        write_task_yml("/clean", entrypoint="echo clean", depends_on_tasks=["raw"])
+        write_task_yml("/import", entrypoint="echo import")
+        write_task_yml("/clean", entrypoint="echo clean", depends_on_tasks=["import"])
         write_task_yml("/report", entrypoint="echo report", depends_on_tasks=["clean"])
         write_task_yml("/unrelated", entrypoint="echo unrelated")
 
@@ -278,6 +278,99 @@ class TestRun:
             return_code = pdp.run_task("clean")
 
         expect([c.args[0] for c in mock_run.call_args_list]).to(
-            equal(["echo raw", "echo clean"])
+            equal(["echo import", "echo clean"])
         )
         expect(return_code).to(equal(0))
+
+
+class TestSymlinks:
+    def test_scaffold_symlinks_dependency_output_into_input(self, import_and_clean_project):
+        import_and_clean_project.scaffold()
+
+        link = Path("clean/input/import")
+        expect(link.is_symlink()).to(be_true)
+        expect(link.resolve()).to(equal(Path("import/output").resolve()))
+
+    def test_scaffold_symlink_target_is_relative(self, import_and_clean_project):
+        import_and_clean_project.scaffold()
+
+        expect(os.readlink("clean/input/import")).to(equal("../../import/output"))
+
+    def test_symlink_still_resolves_after_project_is_moved(
+        self, import_and_clean_project, tmp_path
+    ):
+        import_and_clean_project.scaffold()
+        (tmp_path / "import/output/data.csv").write_text("x")
+
+        moved = tmp_path.parent / f"{tmp_path.name}-moved"
+        tmp_path.rename(moved)
+
+        expect((moved / "clean/input/import/data.csv").read_text()).to(equal("x"))
+
+    def test_scaffold_symlink_resolves_when_dependency_output_missing(self, real_pdp):
+        real_pdp.create_task("clean")
+        real_pdp.create_task("import")
+        write_task_yml("clean", depends_on_tasks=["import"])
+        Path("import/output").rmdir()
+
+        real_pdp.scaffold()
+
+        expect(Path("clean/input/import").resolve().is_dir()).to(be_true)
+
+    def test_scaffold_twice_keeps_one_working_symlink(self, import_and_clean_project):
+        import_and_clean_project.scaffold()
+        import_and_clean_project.scaffold()
+
+        expect(os.listdir("clean/input")).to(equal(["import"]))
+        expect(Path("clean/input/import").resolve()).to(equal(Path("import/output").resolve()))
+
+    def test_rescaffold_prunes_link_for_removed_dependency(self, import_and_clean_project):
+        import_and_clean_project.scaffold()
+        write_task_yml("clean", depends_on_tasks=[])
+
+        import_and_clean_project.scaffold()
+
+        expect(os.path.lexists("clean/input/import")).to(be_false)
+
+    def test_rescaffold_never_removes_hand_made_file_in_input(self, import_and_clean_project):
+        write_task_yml("clean", depends_on_tasks=[])
+        Path("clean/input/import").write_text("mine")
+        Path("clean/input/notes.csv").write_text("mine")
+
+        import_and_clean_project.scaffold()
+
+        expect(Path("clean/input/import").read_text()).to(equal("mine"))
+        expect(Path("clean/input/notes.csv").read_text()).to(equal("mine"))
+
+    def test_rescaffold_never_removes_symlink_pointing_outside_project(
+        self, import_and_clean_project, tmp_path_factory
+    ):
+        outside = tmp_path_factory.mktemp("elsewhere")
+        write_task_yml("clean", depends_on_tasks=[])
+        Path("clean/input/import").symlink_to(outside)
+
+        import_and_clean_project.scaffold()
+
+        expect(Path("clean/input/import").resolve()).to(equal(outside.resolve()))
+
+    def test_real_directory_at_dependency_link_path_fails_validation(
+        self, import_and_clean_project
+    ):
+        Path("clean/input/import").mkdir()
+
+        errors = import_and_clean_project.validation_errors()
+
+        expect(errors).to(contain(contain("input/import")))
+
+    def test_symlink_failure_warns_and_scaffold_completes(
+        self, import_and_clean_project, monkeypatch
+    ):
+        def refuse(*args, **kwargs):
+            raise OSError("symlinks not permitted")
+
+        monkeypatch.setattr(Path, "symlink_to", refuse)
+
+        with pytest.warns(UserWarning, match="input/import"):
+            import_and_clean_project.scaffold()
+
+        expect(Path("clean/output").is_dir()).to(be_true)

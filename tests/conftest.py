@@ -77,19 +77,19 @@ def task(fs):
 
 
 @pytest.fixture
-def raw_and_clean(fs):
-    """create two tasks: 'raw' and 'clean'"""
-    Path("/pdp.yml").write_text("tasks:\n  - raw\n  - clean\n")
+def import_and_clean(fs):
+    """create two tasks: 'import' and 'clean'"""
+    Path("/pdp.yml").write_text("tasks:\n  - import\n  - clean\n")
 
-    raw = Task("raw", Path("/raw"))
-    raw.scaffold()
+    import_task = Task("import", Path("/import"))
+    import_task.scaffold()
 
     Path("/clean").mkdir()
-    write_task_yml("/clean", depends_on_tasks=["raw"])
+    write_task_yml("/clean", depends_on_tasks=["import"])
     clean = Task("clean", Path("/clean"))
     clean.scaffold()
 
-    return raw, clean
+    return import_task, clean
 
 
 def make_real_task(root: Path, name: str, deps=()) -> Task:
@@ -113,24 +113,44 @@ def real_task(tmp_path):
 
 @pytest.fixture
 def real_chain(tmp_path):
-    """raw -> clean -> report on real filesystem"""
+    """import -> clean -> report on real filesystem"""
     (tmp_path / "pdp.yml").write_text(
-        "name: test\ntasks:\n  - raw\n  - clean\n  - report\n"
+        "name: test\ntasks:\n  - importw\n  - clean\n  - report\n"
     )
-    raw = make_real_task(tmp_path, "raw")
-    clean = make_real_task(tmp_path, "clean", ["raw"])
+    import_task = make_real_task(tmp_path, "import")
+    clean = make_real_task(tmp_path, "clean", ["import"])
     report = make_real_task(tmp_path, "report", ["clean"])
 
-    return raw, clean, report
+    return import_task, clean, report
 
 
 @pytest.fixture
 def two_deps_and_clean(pdp, fs):
-    raw1 = pdp.create_task("raw1")
-    raw2 = pdp.create_task("raw2")
+    import1 = pdp.create_task("import1")
+    import2 = pdp.create_task("import2")
     clean = pdp.create_task("clean")
     pdp.scaffold()
 
-    clean.task_config.update_config_key("depends_on_tasks", ["raw1", "raw2"])
+    clean.task_config.update_config_key("depends_on_tasks", ["import2", "import2"])
 
-    return raw1, raw2, clean
+    return import1, import2, clean
+
+
+@pytest.fixture
+def real_pdp(tmp_path, monkeypatch):
+    """Initialized project on the real filesystem, cwd at its root"""
+    monkeypatch.chdir(tmp_path)
+    pdp = PDP("test")
+    pdp.initialize()
+
+    return pdp
+
+
+@pytest.fixture
+def import_and_clean_project(real_pdp):
+    """Real project where clean depends on import"""
+    real_pdp.create_task("import")
+    real_pdp.create_task("clean")
+    write_task_yml("clean", depends_on_tasks=["import"])
+
+    return real_pdp

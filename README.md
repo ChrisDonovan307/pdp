@@ -20,7 +20,7 @@ This tool is designed both to be opinionated (see [Principles](#principles) belo
 
 ## Principles
 
-1. Projects are separated into _tasks_, which are folders in the filesystem. A task is either a collection of subtasks, which are themselves subdirectories in the task, or an _atomic_ task which contains no further subtasks.
+1. Projects are separated into _tasks_, which are folders in the filesystem. A task is either a collection of subtasks, which are themselves subdirectories in the task, or an _atomic_ task which contains no further subtasks. **NOTE:** subtask functionality is delayed - project only currently works with single level tasks.
 
 2. Atomic tasks contain folders for `input` (input data for the task), `src` (source code), and `output` (where the task writes its outputs). Importantly, tasks only write to their output folders, and never read from their own outputs.
 
@@ -61,7 +61,7 @@ Run the tests with `uv run pytest`, and the CLI with `uv run pdp`.
 
 ## Contributing
 
-All code should be tested and formatted using [black](https://github.com/psf/black).
+All code should be formatted and linted with [Ruff](https://github.com/astral-sh/ruff). Use [Google style docstrings](https://google.github.io/styleguide/pyguide.html#docstrings)
 
 ## About
 

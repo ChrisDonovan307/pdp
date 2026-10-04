@@ -126,25 +126,25 @@ class TestStaleness:
 
         expect(latest_mtime_in_dir(task.output_folder)).to(be_none)
 
-    def test_task_is_stale_when_output_missing(self, raw_and_clean):
-        _, clean = raw_and_clean
+    def test_task_is_stale_when_output_missing(self, import_and_clean):
+        _, clean = import_and_clean
 
         expect(clean.is_stale).to(be_true)
 
-    def test_task_is_stale_when_dependency_is_newer(self, raw_and_clean):
-        raw, clean = raw_and_clean
+    def test_task_is_stale_when_dependency_is_newer(self, import_and_clean):
+        import_task, clean = import_and_clean
 
         touch(clean.output_folder / "result.txt", 1000)
-        touch(raw.output_folder / "data.txt", 2000)
+        touch(import_task.output_folder / "data.txt", 2000)
 
         expect(clean.is_stale).to(be_true)
 
     def test_task_not_stale_when_own_output_is_newer_than_dependency(
-        self, raw_and_clean
+        self, import_and_clean
     ):
-        raw, clean = raw_and_clean
+        import_task, clean = import_and_clean
 
-        touch(raw.output_folder / "data.txt", 1000)
+        touch(import_task.output_folder / "data.txt", 1000)
         touch(clean.output_folder / "result.txt", 2000)
 
         expect(clean.is_stale).to(be_false)
@@ -169,21 +169,21 @@ class TestStaleness:
         self,
         two_deps_and_clean
     ):
-        raw1, raw2, clean = two_deps_and_clean
+        import1, import2, clean = two_deps_and_clean
 
         touch(clean.output_folder / "output.csv", 2000)
-        touch(raw1.output_folder / "data1.csv", 1000)
-        touch(raw2.output_folder / "data2.csv", 3000)
+        touch(import1.output_folder / "data1.csv", 1000)
+        touch(import2.output_folder / "data2.csv", 3000)
 
         expect(clean.is_stale).to(be_true)
 
 
     def test_task_not_stale_when_all_dependencies_are_older(self, two_deps_and_clean):
-        raw1, raw2, clean = two_deps_and_clean
+        import1, import2, clean = two_deps_and_clean
 
         touch(clean.output_folder / "result.txt", 2000)
-        touch(raw1.output_folder / "data1.txt", 1000)
-        touch(raw2.output_folder / "data2.txt", 1500)
+        touch(import1.output_folder / "data1.txt", 1000)
+        touch(import2.output_folder / "data2.txt", 1500)
 
         expect(clean.is_stale).to(be_false)
 
@@ -253,9 +253,9 @@ class TestStaleness:
 
 
     def test_chain_not_stale_when_everything_is_fresh(self, real_chain):
-        raw, clean, report = real_chain
-        touch(raw.src_folder / "script.py", 500)
-        touch(raw.output_folder / "data.csv", 1000)
+        import_task, clean, report = real_chain
+        touch(import_task.src_folder / "script.py", 500)
+        touch(import_task.output_folder / "data.csv", 1000)
         touch(clean.output_folder / "clean.csv", 2000)
         touch(report.output_folder / "report.csv", 3000)
 
@@ -263,9 +263,9 @@ class TestStaleness:
 
 
     def test_task_is_stale_when_dependency_is_stale_despite_fresh_mtimes(self, real_chain):
-        raw, clean, _ = real_chain
-        touch(raw.output_folder / "data.csv", 1000)
-        touch(raw.src_folder / "script.py", 2000)  # raw is stale
+        import_task, clean, _ = real_chain
+        touch(import_task.output_folder / "data.csv", 1000)
+        touch(import_task.src_folder / "script.py", 2000)  # import is stale
         touch(clean.output_folder / "clean.csv", 3000)  # newer than everything
 
         expect(clean.is_stale).to(be_true)
@@ -279,9 +279,9 @@ class TestStaleness:
 
 
     def test_staleness_is_transitive_across_chain(self, real_chain):
-        raw, clean, report = real_chain
-        touch(raw.output_folder / "data.csv", 1000)
-        touch(raw.src_folder / "script.py", 2000)  # raw is stale
+        import_task, clean, report = real_chain
+        touch(import_task.output_folder / "data.csv", 1000)
+        touch(import_task.src_folder / "script.py", 2000)  # import is stale
         touch(clean.output_folder / "clean.csv", 3000)
         touch(report.output_folder / "report.csv", 4000)
 

@@ -3,5 +3,8 @@
         "tests"
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
+    "python.testing.pytestEnabled": true,
+    "autoDocstring.docstringFormat": "google",
+    "autoDocstring.includeExtendedSummary": true,
+    "autoDocstring.guessTypes": false
 }

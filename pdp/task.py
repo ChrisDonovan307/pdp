@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import warnings
 from pathlib import Path
 
 from .pdp_config import TaskConfig
@@ -38,6 +39,33 @@ class Task:
         self.output_folder.mkdir(parents=True, exist_ok=True)
         self.src_folder.mkdir(parents=True, exist_ok=True)
 
+    def create_symlinks(self, task_ids: set[str]) -> None:
+        """Symlink into task input/ the outputs of dependent tasks.
+
+        First, removes any existing symlinks that PDP created, so links
+        to folders that no longer exist are pruned. Only removes what
+        is demonstrably its own - symlink, named after task, target inside project.
+        Then declares new symlinks.
+
+        Args:
+            task_ids: _description_
+        """        
+        root = find_project_root(config_name="pdp.yml", start=self.task_directory)
+        for entry in self.input_folder.iterdir():
+            if (
+                # confirm PDP owns it
+                entry.name in task_ids
+                and entry.is_symlink()
+                and entry.resolve().is_relative_to(root)
+            ):
+                entry.unlink()
+
+        for dep in self.depends_on_tasks:
+            try:
+                (self.input_folder / dep).symlink_to(Path("..", "..", dep, "output"))
+            except OSError as e:  # catch Windows - can't symlink without privilege
+                warnings.warn(f"{self.task_id}: could not link input/{dep}: {e}")
+
     def run(self):
         if not self.entrypoint:
             return 0
@@ -50,14 +78,19 @@ class Task:
     def validation_errors(self) -> list[str]:
         errors: list[str] = self.task_config.validation_errors()
 
-        if not self.input_folder.is_dir():
-            errors.append("input/ folder is missing")
-        if not self.output_folder.is_dir():
-            errors.append("output/ folder is missing")
-        if not self.src_folder.is_dir():
-            errors.append("src/ folder is missing")
+        for folder in (self.input_folder, self.output_folder, self.src_folder):
+            if not folder.is_dir():
+                errors.append(f"{folder.name} is missing")
+
         if self.hand_folder is not None and not self.hand_folder.is_dir():
             errors.append("hand/ folder is missing")
+
+        for dep in self.depends_on_tasks:
+            link = self.input_folder / dep
+            if not link.is_symlink() and link.exists():
+                errors.append(
+                    f"input/{dep} is a real file or directory, not a dependency link"
+                )
 
         return errors
 
