@@ -142,3 +142,14 @@ def test_create_rejects_invalid_task_name(runner, fs):
     expect(result.exit_code).to(equal(1))
     expect(result.stderr).to(contain(f"invalid task name '{bad_name}'"))
     expect(Path(f"/{bad_name}").exists()).to(be_false)
+
+
+def test_run_reports_failed_and_skipped_tasks(import_and_clean_project):
+    write_task_yml("import", entrypoint="exit 1")
+    write_task_yml("clean", entrypoint="touch output/ran", depends_on=["import"])
+
+    result = CliRunner(mix_stderr=False).invoke(app, ["run"])
+
+    expect(result.exit_code).to(equal(1))
+    expect(result.stderr).to(contain("Failed: import"))
+    expect(result.stderr).to(contain("Skipped (upstream failed): clean"))

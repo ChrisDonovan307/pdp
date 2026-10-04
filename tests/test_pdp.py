@@ -227,7 +227,7 @@ class TestRun:
             mock_run.assert_called_once_with(
                 "make", cwd=task.task_directory, shell=True, check=False, env=ANY
             )
-            expect(return_code).to(equal(0))
+            expect(return_code.exit_code).to(equal(0))
 
     def test_pdp_raises_error_if_task_not_found(self, pdp):
         pdp.create_task("hello")
@@ -282,7 +282,7 @@ class TestRun:
         expect([c.args[0] for c in mock_run.call_args_list]).to(
             equal(["echo import", "echo clean"])
         )
-        expect(return_code).to(equal(0))
+        expect(return_code.exit_code).to(equal(0))
 
 
 class TestSymlinks:
@@ -391,7 +391,7 @@ class TestSymlinks:
             depends_on=["import"],
         )
 
-        expect(import_and_clean_project.run_task("clean")).to(equal(0))
+        expect(import_and_clean_project.run_task("clean").exit_code).to(equal(0))
 
 
 class TestDependencyEnvPaths:
@@ -448,7 +448,7 @@ class TestDependencyEnvPaths:
             return_code = import_and_clean_project.run_task("clean")
 
         expect(os.path.lexists("clean/input/import")).to(be_false)
-        expect(return_code).to(equal(0))
+        expect(return_code.exit_code).to(equal(0))
         expect(Path("clean/output/copy.csv").read_text()).to(equal("hello\n"))
 
     def test_run_env_var_name_replaces_dash_with_underscore(self, real_pdp):
@@ -500,3 +500,61 @@ class TestTaskNames:
         pdp.create_task(task_name)
 
         expect(pdp.config.tasks).to(equal([task_name]))
+
+
+class TestRunFailureHandling:
+    def test_failed_task_skips_direct_dependents(self, import_and_clean_project):
+        write_task_yml("import", entrypoint="exit 1")
+        write_task_yml("clean", entrypoint="touch output/ran", depends_on=["import"])
+
+        import_and_clean_project.run_all()
+
+        expect(Path("clean/output/ran").exists()).to(be_false)
+
+    def test_failed_task_skips_dependents_of_dependents(self, import_and_clean_project):
+        import_and_clean_project.create_task("report")
+        write_task_yml("import", entrypoint="exit 1")
+        write_task_yml("clean", entrypoint="touch output/ran", depends_on=["import"])
+        write_task_yml("report", entrypoint="touch output/ran", depends_on=["clean"])
+
+        import_and_clean_project.run_all()
+
+        expect(Path("report/output/ran").exists()).to(be_false)
+
+    def test_unaffected_tasks_still_run_after_failure(self, import_and_clean_project):
+        import_and_clean_project.create_task("other")
+        write_task_yml("import", entrypoint="exit 1")
+        write_task_yml("clean", entrypoint="touch output/ran", depends_on=["import"])
+        write_task_yml("other", entrypoint="touch output/ran")
+
+        import_and_clean_project.run_all()
+
+        expect(Path("other/output/ran").exists()).to(be_true)
+
+    def test_run_report_logs_failed_and_skipped(self, import_and_clean_project):
+        import_and_clean_project.create_task("report")
+        write_task_yml("import", entrypoint="exit 1")
+        write_task_yml("clean", entrypoint="touch output/ran", depends_on=["import"])
+        write_task_yml("report", entrypoint="touch output/ran", depends_on=["clean"])
+
+        result = import_and_clean_project.run_all()
+
+        expect(result.failed).to(equal(["import"]))
+        expect(result.skipped).to(equal(["clean", "report"]))
+        expect(result.exit_code).to(equal(1))
+
+    def test_dependents_still_run_after_symlink_failure(
+        self, import_and_clean_project, refuse_symlinks
+    ):
+        write_task_yml("import", entrypoint="touch output/data.csv")
+        write_task_yml("clean", entrypoint="touch output/ran", depends_on=["import"])
+
+        with pytest.warns(UserWarning, match="input/import"):
+            result = import_and_clean_project.run_all()
+
+        # refuse_symlinks in fixture makes symlink break
+        expect(os.path.lexists("clean/input/import")).to(be_false)
+
+        expect(Path("clean/output/ran").exists()).to(be_true)
+        expect(result.failed).to(equal([]))
+        expect(result.skipped).to(equal([]))

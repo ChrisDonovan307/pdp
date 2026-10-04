@@ -2,7 +2,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from ruamel.yaml import YAML
 
 from pdp.pdp import PDP
 from pdp.pdp_config import PDPConfig

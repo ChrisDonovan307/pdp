@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
@@ -7,6 +8,18 @@ from .pdp_config import PDPConfig
 from .pdp_errors import InvalidConfigError
 from .task import Task
 from .utils import TASK_NAME_RULE, find_project_root, is_valid_task_name
+
+
+@dataclass
+class RunReport:
+    """Tasks that failed or were skipped because something upstream failed"""
+
+    failed: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+
+    @property
+    def exit_code(self) -> int:
+        return 1 if self.failed or self.skipped else 0
 
 
 class PDP:
@@ -81,7 +94,9 @@ class PDP:
 
     def create_task(self, task_name: str) -> Task:
         if not is_valid_task_name(task_name):
-            raise ValueError(f"invalid task name '{task_name}': must be {TASK_NAME_RULE}")
+            raise ValueError(
+                f"invalid task name '{task_name}': must be {TASK_NAME_RULE}"
+            )
 
         self.config.add_task(task_name)
 
@@ -116,7 +131,7 @@ class PDP:
         Args:
             flattened: Every task in project
             task_id: Current task to run
-            
+
         Returns:
             A set of every task_id in scope
         """
@@ -129,7 +144,7 @@ class PDP:
                 stack.extend(flattened[current].depends_on)
         return touched
 
-    def _run_many(self, flattened: dict[str, Task], task_ids) -> int:
+    def _run_many(self, flattened: dict[str, Task], task_ids) -> RunReport:
         graph = {tid: task.depends_on for tid, task in flattened.items()}
         order = [
             tid
@@ -138,25 +153,31 @@ class PDP:
         ]
 
         all_task_ids = set(flattened)
-        returncodes = []
+        report = RunReport()
         for tid in order:
             task = flattened[tid]
+            if any(
+                dep in report.failed or dep in report.skipped for dep in task.depends_on
+            ):
+                report.skipped.append(tid)
+                continue
             if task.is_stale:
                 task.create_symlinks(all_task_ids)
-                returncodes.append(task.run())
+                if task.run() != 0:
+                    report.failed.append(tid)
 
-        return 0 if all(rc == 0 for rc in returncodes) else 1
+        return report
 
     def _validate_or_raise(self) -> None:
         if not self.validate():
             raise InvalidConfigError("\n".join(self.validation_errors()))
 
-    def run_all(self) -> int:
+    def run_all(self) -> RunReport:
         flattened = self.flatten_tasks()
         self._validate_or_raise()
         return self._run_many(flattened, flattened.keys())
 
-    def run_task(self, task_id: str) -> int:
+    def run_task(self, task_id: str) -> RunReport:
         flattened: dict[str, Task] = self.flatten_tasks()
         self._validate_or_raise()
         if task_id not in flattened:
