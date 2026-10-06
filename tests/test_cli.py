@@ -24,6 +24,21 @@ def read_config_file(filename):
     return dict(YAML().load(Path(filename)))
 
 
+def test_init_when_initialized_does_not_prompt(runner, fs):
+    result = runner.invoke(app, ["init"])
+
+    expect(result.exit_code).to(equal(0))
+    expect(result.stdout).not_to(contain("Project name"))
+    expect(result.stdout).to(contain("Project 'test' is already initialized."))
+
+
+def test_init_prompts_for_name_when_missing(fs):
+    result = CliRunner(mix_stderr=False).invoke(app, ["init"], input="prompted\n")
+
+    expect(result.exit_code).to(equal(0))
+    expect(read_config_file("/pdp.yml")["name"]).to(equal("prompted"))
+
+
 def test_init_creates_pdp_yaml(runner, fs):
     config_dict = read_config_file("/pdp.yml")
     expect(config_dict["name"]).to(equal("test"))
@@ -40,6 +55,62 @@ def test_create_tasks(runner, fs):
     expect(Path("/world/input").exists()).to(be_true)
     expect(Path("/world/output").exists()).to(be_true)
     expect(Path("/world/src").exists()).to(be_true)
+
+
+def test_create_with_dep(runner, fs):
+    _ = runner.invoke(app, ["create", "dep1", "dep2"])
+
+    result = runner.invoke(app, ["create", "task1", "--dep", "dep1", "-d", "dep2"])
+
+    expect(result.exit_code).to(equal(0))
+    expect(read_config_file("/task1/task.yml")["depends_on"]).to(
+        equal(["dep1", "dep2"])
+    )
+    expect(Path("/task1/input/dep1").is_symlink()).to(be_true)
+    expect(Path("/task1/input/dep2").is_symlink()).to(be_true)
+
+
+def test_create_with_unknown_dep_errors(runner, fs):
+    result = runner.invoke(app, ["create", "task1", "--dep", "nope"])
+
+    expect(result.exit_code).to(equal(1))
+    expect(result.stderr).to(contain("unknown dependency task(s): nope"))
+    expect(Path("/task1").exists()).to(be_false)
+
+
+def test_depend_adds_deps_to_existing_task(runner, fs):
+    _ = runner.invoke(app, ["create", "a", "b", "c"])
+    _ = runner.invoke(app, ["depend", "c", "a"])
+
+    result = runner.invoke(app, ["depend", "c", "a", "b"])
+
+    expect(result.exit_code).to(equal(0))
+    expect(read_config_file("/c/task.yml")["depends_on"]).to(equal(["a", "b"]))
+    expect(Path("/c/input/a").is_symlink()).to(be_true)
+    expect(Path("/c/input/b").is_symlink()).to(be_true)
+
+
+@pytest.mark.parametrize(
+    "args, message",
+    [
+        (["depend", "nope", "a"], "Task nope not found"),
+        (["depend", "b", "nope"], "unknown dependency task(s): nope"),
+        (["depend", "b", "b"], "cannot depend on itself"),
+        (["depend", "a", "b"], "would create a cycle"),
+    ],
+)
+def test_depend_errors_leave_task_yml_unchanged(runner, fs, args, message):
+    _ = runner.invoke(app, ["create", "a"])
+    _ = runner.invoke(app, ["create", "b", "-d", "a"])
+    before = Path("/a/task.yml").read_text(), Path("/b/task.yml").read_text()
+
+    result = runner.invoke(app, args)
+
+    expect(result.exit_code).to(equal(1))
+    expect(" ".join(result.stderr.split())).to(contain(message))
+    expect((Path("/a/task.yml").read_text(), Path("/b/task.yml").read_text())).to(
+        equal(before)
+    )
 
 
 def test_create_from_inside_task_errors(runner, fs):
@@ -192,6 +263,20 @@ def test_running_unknown_task_throws_error(runner, fs):
     expect(result.exit_code).to(equal(1))
     expect(result.stderr).to(contain("Task badtask not found"))
     expect(result.exception).to(be_a(SystemExit))
+
+
+@pytest.mark.parametrize("command", [["run"], ["validate"], ["init", "--name", "x"]])
+def test_malformed_yaml_fails_cleanly(runner, fs, command):
+    _ = runner.invoke(app, ["create", "hello"])
+    bad = "name: hello\nentrypoint: ''\ndepends_on: ['fff]\n"
+    Path("/hello/task.yml").write_text(bad)
+
+    result = runner.invoke(app, command)
+
+    expect(result.exit_code).to(equal(1))
+    expect(result.exception).to(be_a(SystemExit))
+    expect(result.stderr).to(contain("malformed YAML"))
+    expect(Path("/hello/task.yml").read_text()).to(equal(bad))
 
 
 def test_run_with_invalid_pdp_yml_throws_error(runner, fs):

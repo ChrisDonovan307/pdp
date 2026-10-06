@@ -1,13 +1,15 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from graphlib import CycleError, TopologicalSorter
 from pathlib import Path
 
+from rich.console import Console
 from rich.tree import Tree
 
 from .pdp_config import PDPConfig
 from .pdp_errors import InvalidConfigError
 from .task import Task, latest_mtime_in_dir
-from .utils import TASK_NAME_RULE, find_project_root, is_valid_task_name
+from .utils import ICONS, TASK_NAME_RULE, find_project_root, is_valid_task_name
 
 
 @dataclass
@@ -24,6 +26,22 @@ class RunReport:
     current: list[str] = field(default_factory=list)
     no_entrypoint: list[str] = field(default_factory=list)
     no_output: list[str] = field(default_factory=list)
+
+    def render(self, console: Console, err_console: Console) -> None:
+        if self.ran:
+            console.print(f"{ICONS['success']} Ran: {', '.join(self.ran)}")
+        if self.current:
+            console.print(f"{ICONS['success']} Current (skipped): {', '.join(self.current)}")
+        if self.no_entrypoint:
+            console.print(f"No entrypoint, not run: {', '.join(self.no_entrypoint)}")
+        if self.no_output:
+            err_console.print(
+                f"Ran but wrote nothing to output/: {', '.join(self.no_output)}"
+            )
+        if self.failed:
+            err_console.print(f"Failed: {', '.join(self.failed)}")
+        if self.skipped:
+            err_console.print(f"Skipped (upstream failed): {', '.join(self.skipped)}")
 
     @property
     def exit_code(self) -> int:
@@ -55,8 +73,8 @@ class PDP:
     def validation_errors(self) -> list[str]:
         """Reasons the project fails validation
 
-        Checks pdp.yml, input dir, output dir, adn task.yml for each task.
-        Checks that Depends_on references real task, and no dependency cycles.
+        Checks pdp.yml, input dir, output dir, and task.yml for each task.
+        Checks that depends_on references real task, and no dependency cycles.
 
         Returns:
             A list of strings of error messages. Empty if valid.
@@ -95,11 +113,16 @@ class PDP:
     def validate(self) -> bool:
         return not self.validation_errors()
 
-    def create_task(self, task_name: str) -> Task:
+    def create_task(self, task_name: str, depends_on: Sequence[str] = ()) -> Task:
         if not is_valid_task_name(task_name):
             raise ValueError(
                 f"invalid task name '{task_name}': must be {TASK_NAME_RULE}"
             )
+        # Check deps before writing anything. Add to existing deps if task exists
+        existing = self._find_task_by_id(task_name)
+        merged = self._merge_deps(
+            task_name, existing.depends_on if existing else [], depends_on
+        )
 
         self.config.add_task(task_name)
 
@@ -108,13 +131,56 @@ class PDP:
         task = Task(task_name, task_directory)
         task.scaffold()
 
+        if depends_on:
+            self._write_deps(task, merged)
+
         self.tasks.append(task)
 
         return task
 
-    def create_task_from_current_location(self, task_name: str) -> Task | None:
+    def add_dependencies(self, task_name: str, depends_on: list[str]) -> Task:
+        task = self._find_task_by_id(task_name)
+        if task is None:
+            raise ValueError(f"Task {task_name} not found")
+
+        self._write_deps(task, self._merge_deps(task_name, task.depends_on, depends_on))
+
+        return task
+
+    def _merge_deps(
+        self, task_name: str, current: Sequence[str], new: Sequence[str]
+    ) -> list[str]:
+        """Return current + new deps, deduplicated.
+
+        Raises:
+            ValueError: if a new dep is the task itself, unknown, or makes a cycle
+        """
+        if task_name in new:
+            raise ValueError(f"task '{task_name}' cannot depend on itself")
+        unknown = [dep for dep in new if dep not in self.config.tasks]
+        if unknown:
+            raise ValueError(f"unknown dependency task(s): {', '.join(unknown)}")
+
+        merged = list(dict.fromkeys([*current, *new]))
+
+        graph = {tid: task.depends_on for tid, task in self.flatten_tasks().items()}
+        graph[task_name] = merged
+        try:
+            TopologicalSorter(graph).prepare()
+        except CycleError:
+            raise ValueError(f"dependencies would create a cycle through '{task_name}'")
+
+        return merged
+
+    def _write_deps(self, task: Task, depends_on: list[str]) -> None:
+        task.task_config.update_config_key("depends_on", depends_on)
+        task.create_symlinks(set(self.config.tasks))
+
+    def create_task_from_current_location(
+        self, task_name: str, depends_on: Sequence[str] = ()
+    ) -> Task | None:
         if self.current_path == Path("."):
-            return self.create_task(task_name)
+            return self.create_task(task_name, depends_on)
 
         raise ValueError("tasks can only be created at the project root")
 
@@ -212,8 +278,9 @@ class PDP:
         return tree
 
     def flatten_tasks(self) -> dict[str, Task]:
-        """Create dict of tasks. This is where subtask flattening would happen,
-        temporarily deferred.
+        """Create dict of tasks. 
+        
+        This is where subtask flattening would happen, temporarily deferred.
 
         Returns:
             dict[task_id, Task]: Tasks

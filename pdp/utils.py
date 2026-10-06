@@ -1,6 +1,13 @@
 import re
 from pathlib import Path
 
+from rich.emoji import Emoji
+
+ICONS = {
+    "success": Emoji("white_check_mark"),
+    "error": Emoji("x"),
+}
+
 TASK_NAME_RULE = "letters and digits, separated by single underscores or dashes"
 _TASK_NAME = re.compile(r"[A-Za-z0-9]+([_-][A-Za-z0-9]+)*")
 
@@ -22,8 +29,8 @@ def find_project_root(config_name: str, start: Path | None = None) -> Path:
     by default, but can be given a path to accommodate using it Task.task_id
 
     Args:
-        config_name (str): Name of config file
-        start (Path | None, optional): Path to start walking from. Defaults to None.
+        config_name: Name of config file
+        start: Path to start walking from. Defaults to None.
 
     Returns:
         Path: Absolute path to project root

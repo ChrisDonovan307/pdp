@@ -8,6 +8,7 @@ from rich.console import Console
 
 from pdp.pdp import PDP, RunReport
 from pdp.pdp_errors import InvalidConfigError
+from pdp.utils import ICONS
 
 app = typer.Typer(no_args_is_help=True)
 err_console = Console(stderr=True)
@@ -34,20 +35,20 @@ def main(
 
 
 def _exit_validation_failed(error: InvalidConfigError):
-    err_console.print("Validation failed.")
+    err_console.print(f"{ICONS['error']} Validation failed.")
     for line in str(error).split("\n"):
         err_console.print(f"  {line}")
     raise typer.Exit(1)
 
 
 def load_pdp():
-    pdp = PDP()
-
-    if not pdp.initialized:
-        err_console.print("No project detected. Try `pdp init`.")
-        raise typer.Exit(1)
-
     try:
+        pdp = PDP()
+
+        if not pdp.initialized:
+            err_console.print("No project detected. Try `pdp init`.")
+            raise typer.Exit(1)
+
         pdp.initialize()
     except InvalidConfigError as e:
         _exit_validation_failed(e)
@@ -57,20 +58,29 @@ def load_pdp():
 
 @app.command()
 def init(
-    project_name: str = typer.Option(None, "--name", "-n", prompt="Project name"),
+    project_name: str = typer.Option(None, "--name", "-n"),
 ) -> None:
-    """
-    Initialize the project.
-    """
+    """Initialize the project.
 
-    pdp = PDP(project_name)
-    pdp.initialize()
+    Prompts for a project name and creates the root pdp.yml file
+    """    
+    try:
+        pdp = PDP(project_name)
+        if pdp.initialized:
+            console.print(f"Project '{pdp.config.name}' is already initialized.")
+        elif not project_name:
+            pdp.config.name = typer.prompt("Project name")
+        pdp.initialize()
+    except InvalidConfigError as e:
+        _exit_validation_failed(e)
 
 
 @app.command()
 def scaffold():
     """
-    Scaffold the project. That is, for each task, create input and output folders if they don't already exist.
+    Scaffold the project. 
+    
+    For each task, create input and output folders if they don't already exist.
     """
 
     pdp = load_pdp()
@@ -78,7 +88,13 @@ def scaffold():
 
 
 @app.command()
-def create(task_names: list[str]) -> None:
+def create(
+    task_names: list[str],
+    deps: Annotated[
+        list[str] | None,
+        typer.Option("--dep", "-d", help="Existing task this depends on. Repeatable."),
+    ] = None,
+) -> None:
     """
     Create a task.
 
@@ -90,28 +106,48 @@ def create(task_names: list[str]) -> None:
 
     try:
         for task_name in task_names:
-            pdp.create_task_from_current_location(task_name)
+            pdp.create_task_from_current_location(task_name, deps or [])
     except ValueError as e:
         err_console.print(f"Cannot create task: {e}")
         raise typer.Exit(1)
 
 
 @app.command()
-def validate():
+def depend(task_name: str, deps: list[str]) -> None:
     """
-    Validate the pdp yml.
+    Add task dependencies to an existing task.
+    
+    Both the task and the dependencies must already exist and be valid.
     """
 
+    pdp = load_pdp()
+
+    try:
+        pdp.add_dependencies(task_name, deps)
+    except ValueError as e:
+        err_console.print(f"Cannot add dependency: {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def validate():
+    """Validate the PDP project
+
+    Validates that:\n
+    - Project is initiated and there are no circular task dependencies\n
+    - Each task contains input/, output/, and src/ folders\n
+    - Outputs of task dependencies are symlinked into task/input/.
+    """
     pdp = load_pdp()
     errors = pdp.validation_errors()
 
     if errors:
-        err_console.print("Validation failed.")
+        err_console.print(f"{ICONS['error']} Validation failed.")
         for error in errors:
             err_console.print(f"  {error}")
         raise typer.Exit(1)
 
-    console.print("Valid.")
+    console.print(f"{ICONS['success']} Project is valid.")
 
 
 @app.command()
@@ -147,20 +183,7 @@ def run(
         err_console.print(str(e))
         raise typer.Exit(1)
 
-    if report.ran:
-        console.print(f"Ran: {', '.join(report.ran)}")
-    if report.current:
-        console.print(f"Current: {', '.join(report.current)}")
-    if report.no_entrypoint:
-        console.print(f"No entrypoint, not run: {', '.join(report.no_entrypoint)}")
-    if report.no_output:
-        err_console.print(
-            f"Ran but wrote nothing to output/: {', '.join(report.no_output)}"
-        )
-    if report.failed:
-        err_console.print(f"Failed: {', '.join(report.failed)}")
-    if report.skipped:
-        err_console.print(f"Skipped (upstream failed): {', '.join(report.skipped)}")
+    report.render(console, err_console)
 
     raise typer.Exit(report.exit_code)
 
@@ -174,5 +197,15 @@ def tree() -> None:
     pdp = load_pdp()
     tree = pdp.task_tree()
     rprint(tree)
+
+    raise typer.Exit(0)
+
+@app.command()
+def status() -> None:
+    """
+    Check project status.
+    """
+
+    console.print("status!")
 
     raise typer.Exit(0)

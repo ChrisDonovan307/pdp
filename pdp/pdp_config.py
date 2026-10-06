@@ -2,9 +2,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import ClassVar
 
-from ruamel.yaml import YAML
+from ruamel.yaml import YAML, YAMLError
 
-from .pdp_errors import UninitializedProjectError
+from .pdp_errors import InvalidConfigError, UninitializedProjectError
 from .utils import TASK_NAME_RULE, input_env_var, is_valid_task_name
 
 
@@ -30,6 +30,8 @@ class GenericConfig(ABC):
             return dict(self.yaml.load(self.path_to_config))
         except (TypeError, FileNotFoundError):
             return {}
+        except YAMLError as e:
+            raise InvalidConfigError(f"{self.path_to_config}: malformed YAML") from e
 
     @requires_initialization
     def update_config(self, config):

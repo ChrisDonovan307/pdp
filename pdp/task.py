@@ -111,6 +111,16 @@ class Task:
         return snapshot
 
     def validation_errors(self) -> list[str]:
+        """Validate task
+
+        Check that: input/, output/, and src/ folders exist;
+        if a hand/ folder exists, it is logged for the task;
+        task dependency files are symlinked in input/<dep>.
+        Also runs task_config.validate().
+
+        Returns:
+            errors: A list of strings, one for each error logged
+        """        
         errors: list[str] = self.task_config.validation_errors()
 
         for folder in (self.input_folder, self.output_folder, self.src_folder):
